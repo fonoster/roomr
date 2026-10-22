@@ -1,8 +1,9 @@
 name: Release
 
-# Tag vX.Y.Z to release. The tagged commit must pass CI; then the multi-arch image is published to
-# Docker Hub (fonoster/roomr:X.Y.Z, and :latest for a stable tag) and a GitHub release is created
-# with generated notes and the protos attached (Fonoster vendors them from here).
+# Tag vX.Y.Z to release. The tagged commit must pass CI; then the multi-arch images are published to
+# Docker Hub (fonoster/roomr and fonoster/roomr-fake, X.Y.Z and :latest for a stable tag), the npm
+# package @fonoster/roomr is published at X.Y.Z, and a GitHub release is created with generated
+# notes, the protos (platforms vendor them from here) and static roomr-fake binaries.
 
 on:
   push:
@@ -23,7 +24,8 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - { name: roomr, dockerfile: Dockerfile }
+          - { name: roomr, target: node }
+          - { name: roomr-fake, target: fake }
     steps:
       - uses: actions/checkout@v4
 
@@ -58,7 +60,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.image.dockerfile }}
+          target: ${{ matrix.image.target }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.tags.outputs.tags }}
@@ -66,12 +68,55 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image.name }}
           cache-to: type=gha,mode=min,scope=${{ matrix.image.name }}
 
+  npm:
+    name: publish @fonoster/roomr
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - name: Version from the tag
+        run: npm version --no-git-tag-version "${GITHUB_REF_NAME#v}"
+      - run: npm run build
+      - name: Publish (a pre-release goes to the next tag)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          TAG=latest
+          case "$GITHUB_REF_NAME" in *-*) TAG=next ;; esac
+          npm publish --access public --provenance --tag "$TAG"
+
   release:
     name: GitHub release
-    needs: images
+    needs: [images, npm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      # Static roomr-fake binaries (no cgo: the fake's nodes offer every codec but Opus), for
+      # running the fake without Docker (macOS development).
+      - name: Build roomr-fake binaries
+        run: |
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
+              -o "dist/roomr-fake-$os-$arch" ./cmd/roomr-fake
+          done
       - name: Create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -79,4 +124,4 @@ jobs:
           PRE=""
           case "$GITHUB_REF_NAME" in *-*) PRE="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" $PRE --generate-notes --title "$GITHUB_REF_NAME" \
-            api/roomr/v1/roomr.proto api/session/v1/session.proto
+            api/roomr/v1/roomr.proto api/session/v1/session.proto dist/roomr-fake-*

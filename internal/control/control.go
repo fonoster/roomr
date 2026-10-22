@@ -241,8 +241,8 @@ type Server struct {
 }
 
 // Listen binds addr and prepares the server; tlsConfig nil serves plaintext (mTLS when it
-// requires client certificates).
-func Listen(addr string, b Backend, tlsConfig *tls.Config, log *slog.Logger) (*Server, error) {
+// requires client certificates). extra adds server options (roomr-fake's interceptor).
+func Listen(addr string, b Backend, tlsConfig *tls.Config, log *slog.Logger, extra ...grpc.ServerOption) (*Server, error) {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -257,7 +257,7 @@ func Listen(addr string, b Backend, tlsConfig *tls.Config, log *slog.Logger) (*S
 	if tlsConfig != nil {
 		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
 	}
-	g := grpc.NewServer(opts...)
+	g := grpc.NewServer(append(opts, extra...)...)
 	roomrv1.RegisterRoomrServer(g, NewService(b))
 	h := health.NewServer()
 	healthpb.RegisterHealthServer(g, h)
@@ -281,6 +281,9 @@ func (s *Server) Serve() error {
 	}
 	return err
 }
+
+// Abort closes the listener and every connection at once, as a crashed node would (roomr-fake).
+func (s *Server) Abort() { s.grpc.Stop() }
 
 // Stop finishes in-flight RPCs (up to 5 s) and closes the listener.
 func (s *Server) Stop() {

@@ -68,6 +68,9 @@ func (t SipTarget) check() error {
 // CallInfo is a Call as Roomr reports it.
 type CallInfo struct {
 	CallRef, RoomRef, ParticipantRef, State string
+	// Cause and SIPStatus: why an ended call ended (not on the wire; roomr-fake reports them).
+	Cause     string
+	SIPStatus int
 }
 
 // CallRequest is CreateCall's input.
@@ -194,7 +197,7 @@ func (n *Node) CreateCall(req CallRequest) (CallInfo, error) {
 func (c *call) runOutbound(ctx context.Context, cancel context.CancelFunc) {
 	defer cancel()
 	c.event("call.ringing", nil)
-	p, err := c.n.dialOut(ctx, c.req.To, c.req.From, nil)
+	p, err := c.n.dialOut(withCallRef(ctx, c.ref), c.req.To, c.req.From, nil)
 	c.mu.Lock()
 	dialRoom, removed := c.dialRoom, c.removed
 	c.dialRoom, c.cancelDial = nil, nil

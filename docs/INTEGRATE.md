@@ -137,13 +137,11 @@ reach SIP, only the controller may reach gRPC.
 - Run the real node with the example configs in [`examples/`](../examples).
 - The [`cmd/sipcaller`](../cmd/sipcaller) tool places a SIP call into a node, and
   [`cmd/loadgen`](../cmd/loadgen) drives many calls and serves a session endpoint.
-- For tests that must not run a real node, a fake is planned (see below).
+- For your own tests, run the fake (see below).
 
-## Testing without a real node: the fake (planned, not yet available)
+## Testing with the fake
 
-A fake node, `fonoster/roomr-fake`, is planned in
-[#13](https://github.com/fonoster/roomr/issues/13): it will implement the same two gRPC interfaces
-and the NATS events, with no SIP and no media, scripted over a small control API (refuse a call,
-go silent, end with a given cause), with the same contract tests run against the real node and the
-fake in this repository's CI so the fake cannot drift from the node. Until it ships, test against
-the real node with the tools above.
+`fonoster/roomr-fake` hosts real nodes behind an HTTP control API: a phone that calls the node and
+answers what it dials, scripted callees, gRPC faults, pre-filled rooms, stale heartbeats, kills and
+crashes. `@fonoster/roomr/fake` is its Node.js client, and the same contract suite runs against the
+fake and the real node in this repository's CI. See [the fake](FAKE.md).

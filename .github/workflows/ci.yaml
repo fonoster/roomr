@@ -67,13 +67,55 @@ jobs:
         if: failure()
         run: docker compose -f e2e/testdata/routr/compose.yaml logs --tail 80 || true
 
+  # One contract suite (js/src/contract), against the real node and against the fake (add-roomr-fake).
+  contract:
+    name: contract suite (real node and fake)
+    runs-on: ubuntu-latest
+    services:
+      nats:
+        image: nats:2.11.8
+        ports:
+          - 4222:4222
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+      - name: Build roomr, roomr-fake and sipcaller
+        env:
+          CGO_ENABLED: "0"
+          GOTOOLCHAIN: local
+        run: go build -o bin/ ./cmd/roomr ./cmd/roomr-fake ./cmd/sipcaller
+      - name: Contract suite
+        working-directory: js
+        env:
+          CONFORMANCE_NATS_URL: nats://127.0.0.1:4222
+          ROOMR_BIN_DIR: ${{ github.workspace }}/bin
+        run: |
+          npm ci
+          npm run build
+          npx mocha --reporter mocha-junit-reporter --reporter-options mochaFile=../reports/junit/roomr-contract.xml
+      - name: JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-roomr-contract
+          path: reports/junit/
+          if-no-files-found: ignore
+
   image:
     name: image builds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Build (no push)
+      - name: Build the node (no push)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -81,6 +123,14 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=min
+      - name: Build the fake target (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: fake
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha
 
   specs:
     name: openspec validates
@@ -109,7 +159,7 @@ jobs:
   passed:
     name: CI passed
     if: always()
-    needs: [go, image, specs, chart]
+    needs: [go, contract, image, specs, chart]
     runs-on: ubuntu-latest
     steps:
       - name: Every job succeeded

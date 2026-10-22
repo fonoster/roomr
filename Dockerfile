@@ -53,12 +53,22 @@ RUN set -eux; \
     CGO_CFLAGS="-I/opt/opus/include" CGO_LDFLAGS="-L/opt/opus/lib"; \
   flags='-s -w -linkmode external -extldflags "-static"'; \
   go build -trimpath -tags netgo,osusergo -ldflags="$flags -X main.version=$VERSION" -o /out/roomr ./cmd/roomr; \
-  go build -trimpath -tags netgo,osusergo -ldflags="$flags" -o /out/sipcaller ./cmd/sipcaller
+  go build -trimpath -tags netgo,osusergo -ldflags="$flags" -o /out/sipcaller ./cmd/sipcaller; \
+  go build -trimpath -tags netgo,osusergo -ldflags="$flags -X main.version=$VERSION" -o /out/roomr-fake ./cmd/roomr-fake
 
 ##
-# Run stage: static binary, no shell
+# The fake (fonoster/roomr-fake, `--target fake`): real nodes behind an HTTP control API, for
+# platforms' tests. Its nodes take ports at random: run it with --network host (docs/FAKE.md).
 ##
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot AS fake
+COPY --from=builder /out/roomr-fake /roomr-fake
+EXPOSE 8090/tcp
+ENTRYPOINT ["/roomr-fake", "-listen", "0.0.0.0:8090"]
+
+##
+# Run stage (the default target): static binary, no shell
+##
+FROM gcr.io/distroless/static-debian12:nonroot AS node
 
 COPY --from=builder /out/roomr /roomr
 # The SIP caller bot (test calls, the rebuild stack's smoke test): `--entrypoint /sipcaller`.

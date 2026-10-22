@@ -67,7 +67,8 @@ Next: [write the app and the controller](docs/INTEGRATE.md).
 | --- | --- |
 | [How it works](docs/ARCHITECTURE.md) | Purpose, pieces, call flows, media path, failure model, with diagrams |
 | [The contract](docs/CONTRACT.md) | The two gRPC interfaces, RTP and NATS, field by field |
-| [Integrate](docs/INTEGRATE.md) | Run a node, write an app and a controller, test it (a fake node is planned) |
+| [Integrate](docs/INTEGRATE.md) | Run a node, write an app and a controller, test it |
+| [The fake](docs/FAKE.md) | `fonoster/roomr-fake` and `@fonoster/roomr` for your tests |
 | [Configuration](docs/CONFIGURATION.md) | Every `roomr.yaml` setting, ports, draining, codecs |
 | [Specs](openspec/specs) | The requirements, with scenarios |
 | [`llms.txt`](llms.txt) | An index for AI tools |

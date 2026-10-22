@@ -44,8 +44,13 @@ type Bot struct {
 	calls      map[string]*Call
 	seq        int
 	// How the bot answers INVITEs it receives (as the callee of a dial or transfer).
-	answerMode  string // answer (default), busy, no_answer, decline
+	answerMode  string // answer (default), busy, no_answer, unavailable, decline, ring
 	answerAfter time.Duration
+	// keyHeader names the INVITE header whose value keys per-call callee rules and ringing calls
+	// (CalleeFor, AnswerRinging), e.g. X-Call-Ref.
+	keyHeader string
+	rules     map[string]calleeRule
+	ringing   map[string]chan struct{}
 	// answerCodecs, when set, are the only codecs the bot accepts as a callee (a G.711-only trunk).
 	answerCodecs []string
 	refers       []string
@@ -77,6 +82,42 @@ func (b *Bot) Callee(mode string, after time.Duration) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.answerMode, b.answerAfter = mode, after
+}
+
+type calleeRule struct {
+	mode  string
+	after time.Duration
+}
+
+// CalleeFor sets how the bot answers the INVITEs whose header named header has value key,
+// overriding Callee for them. Mode "ring" rings until AnswerRinging(key).
+func (b *Bot) CalleeFor(header, key, mode string, after time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.rules == nil {
+		b.rules = map[string]calleeRule{}
+	}
+	b.keyHeader = header
+	b.rules[key] = calleeRule{mode, after}
+}
+
+// KeyHeader sets the header that keys ringing calls when no CalleeFor rule names it.
+func (b *Bot) KeyHeader(header string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.keyHeader = header
+}
+
+// AnswerRinging answers the INVITE keyed key that rings in mode "ring"; false when none does.
+func (b *Bot) AnswerRinging(key string) bool {
+	b.mu.Lock()
+	ch, ok := b.ringing[key]
+	delete(b.ringing, key)
+	b.mu.Unlock()
+	if ok {
+		close(ch)
+	}
+	return ok
 }
 
 // Challenged is how many INVITEs the bot answered with a 401 challenge.
@@ -703,6 +744,23 @@ func (c *Call) StatusSince(since time.Time) Status {
 func (b *Bot) onInvite(req *sip.Request, tx sip.ServerTransaction) {
 	b.mu.Lock()
 	mode, after := b.answerMode, b.answerAfter
+	key := ""
+	if b.keyHeader != "" {
+		if h := req.GetHeader(b.keyHeader); h != nil {
+			key = h.Value()
+		}
+	}
+	if r, ok := b.rules[key]; ok && key != "" {
+		mode, after = r.mode, r.after
+	}
+	var ring chan struct{}
+	if mode == "ring" {
+		if b.ringing == nil {
+			b.ringing = map[string]chan struct{}{}
+		}
+		ring = make(chan struct{})
+		b.ringing[key] = ring
+	}
 	user, pass := b.authUser, b.authPass
 	b.recordInviteLocked(req)
 	if pass != "" && !authorized(req, user, pass) {
@@ -747,6 +805,17 @@ func (b *Bot) onInvite(req *sip.Request, tx sip.ServerTransaction) {
 	case "no_answer":
 		<-dlg.Context().Done() // ring until the caller gives up
 		return
+	case "ring":
+		select {
+		case <-ring: // AnswerRinging
+		case <-dlg.Context().Done():
+			b.mu.Lock()
+			if b.ringing[key] == ring {
+				delete(b.ringing, key)
+			}
+			b.mu.Unlock()
+			return
+		}
 	}
 	ep, err := rtpio.Listen(b.host)
 	if err != nil {

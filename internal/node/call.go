@@ -188,7 +188,7 @@ func (c *call) streamTransferResult(status, cause string, sipStatus int) {
 func (c *call) info() CallInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	info := CallInfo{CallRef: c.ref, RoomRef: c.roomRef, State: c.state}
+	info := CallInfo{CallRef: c.ref, RoomRef: c.roomRef, State: c.state, Cause: c.cause, SIPStatus: c.sipStatus}
 	if c.leg != nil {
 		info.ParticipantRef = c.leg.Ref
 	}
@@ -366,6 +366,10 @@ func (c *call) openStream() error {
 	c.sess = s
 	roomRef := c.roomRef
 	c.mu.Unlock()
+	if f := c.n.cfg.OnAppMessage; f != nil {
+		ref := c.ref
+		s.observe = func(m *sessionv1.AppMessage) { f(ref, m) }
+	}
 	go s.receive(c.done)
 	dir := sessionv1.Start_INBOUND
 	if !c.inbound {

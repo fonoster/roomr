@@ -12,7 +12,8 @@ heartbeats and events, best effort.
 
 - [How it works](docs/ARCHITECTURE.md): purpose, pieces, call flows, media path, failure model.
 - [The contract](docs/CONTRACT.md): both gRPC interfaces, RTP and NATS subjects, field by field.
-- [Integrate](docs/INTEGRATE.md): run a node, write an app and a controller, test it (a fake node is planned).
+- [Integrate](docs/INTEGRATE.md): run a node, write an app and a controller, test it.
+- [The fake](docs/FAKE.md): fonoster/roomr-fake (real nodes behind an HTTP control API) and the @fonoster/roomr npm package (client, fake client, contract suite).
 - [Configuration](docs/CONFIGURATION.md): every `roomr.yaml` setting, ports, draining, codecs.
 
 ## Source of truth

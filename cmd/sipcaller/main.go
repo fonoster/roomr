@@ -10,6 +10,9 @@
 //	                          (kind: tone, tone:<hz>, silence, pcm)
 //	GET  /calls/{id}/heard    what the caller heard, raw 16 kHz s16le
 //	POST /calls/{id}/hangup
+//	POST /callee              {"mode":"answer|busy|no_answer|unavailable|decline|ring","afterMs":0,
+//	                           "header":"X-Call-Ref","key":"c1"}  (header+key: that call only)
+//	POST /callee/answer       {"header":"X-Call-Ref","key":"c1"}  answers a ringing call
 package main
 
 import (
@@ -142,11 +145,32 @@ func main() {
 			// Challenge picks 401 (default) or 407, as a proxy.
 			Username, Password string
 			Challenge          int
+			// Header and Key script one call: the INVITEs whose Header has value Key (e.g.
+			// X-Call-Ref: c1) get Mode instead of the bot's default.
+			Header, Key string
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Key != "" {
+			bot.CalleeFor(req.Header, req.Key, req.Mode, time.Duration(req.AfterMs)*time.Millisecond)
+			w.WriteHeader(204)
+			return
+		}
 		bot.Callee(req.Mode, time.Duration(req.AfterMs)*time.Millisecond)
 		bot.RequireAuth(req.Username, req.Password)
 		bot.ChallengeWith(req.Challenge)
+		w.WriteHeader(204)
+	})
+	// Answers an INVITE ringing in mode "ring", by its key header's value.
+	mux.HandleFunc("POST /callee/answer", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Header, Key string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Header != "" {
+			bot.KeyHeader(req.Header)
+		}
+		if !bot.AnswerRinging(req.Key) {
+			http.Error(w, "no call rings with that key", 404)
+			return
+		}
 		w.WriteHeader(204)
 	})
 	// The bot's own SIP address, for the node's outbound proxy in tests.
