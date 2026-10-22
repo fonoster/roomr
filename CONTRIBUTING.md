@@ -39,8 +39,9 @@ ROUTR_EDGEPORT=127.0.0.1:15360 ROUTR_NODE_HOST=host.docker.internal \
   go test -race -p 1 ./e2e/...
 ```
 
-If you change a `.proto`, run `api/generate.sh` (needs `protoc`, `protoc-gen-go` v1.36.8 and
-`protoc-gen-go-grpc` v1.5.1) and commit the generated Go.
+If you change a `.proto`, run `api/generate.sh` (needs `protoc`, `protoc-gen-go` v1.36.11 and
+`protoc-gen-go-grpc` v1.6.1, the versions in the generated files' headers) and commit the
+generated Go.
 
 ## Tests
 
@@ -59,8 +60,10 @@ comes with its test, and a fixed bug with the test that failed before. The race 
 
 ## Releases
 
-Maintainers tag `vX.Y.Z`; the release workflow tests, builds the multi-arch images
-(`fonoster/roomr`, `fonoster/roomr-fake`) and publishes the release notes with the protos attached.
+Maintainers tag `vX.Y.Z`; the release workflow runs CI, builds the multi-arch image
+(`fonoster/roomr`) and publishes the release notes with the protos attached. A fake node image
+(`fonoster/roomr-fake`) is planned ([#13](https://github.com/fonoster/roomr/issues/13)) and will
+join the same workflow.
 
 ## Code of conduct
 

@@ -54,7 +54,8 @@ YAML
 docker run --rm --network host -v "$PWD/roomr.yaml:/config/roomr.yaml:ro" fonoster/roomr
 
 # 3. a call (from your controller, or any gRPC client)
-grpcurl -plaintext -d '{"call_ref":"c1","to":{"uri":"sip:+15551234567@carrier.example"}}' \
+grpcurl -plaintext -import-path api -proto roomr/v1/roomr.proto \
+  -d '{"call_ref":"c1","to":{"uri":"sip:+15551234567@carrier.example"}}' \
   localhost:50061 roomr.v1.Roomr/CreateCall
 ```
 
@@ -66,7 +67,7 @@ Next: [write the app and the controller](docs/INTEGRATE.md).
 | --- | --- |
 | [How it works](docs/ARCHITECTURE.md) | Purpose, pieces, call flows, media path, failure model, with diagrams |
 | [The contract](docs/CONTRACT.md) | The two gRPC interfaces, RTP and NATS, field by field |
-| [Integrate](docs/INTEGRATE.md) | Run a node, write an app and a controller, test with the fake |
+| [Integrate](docs/INTEGRATE.md) | Run a node, write an app and a controller, test it (a fake node is planned) |
 | [Configuration](docs/CONFIGURATION.md) | Every `roomr.yaml` setting, ports, draining, codecs |
 | [Specs](openspec/specs) | The requirements, with scenarios |
 | [`llms.txt`](llms.txt) | An index for AI tools |
@@ -77,7 +78,7 @@ Next: [write the app and the controller](docs/INTEGRATE.md).
 brew install opus   # or: apt install libopus-dev
 go build ./cmd/...
 go test ./cmd/... ./internal/...
-./roomr -config examples/roomr.compose.yaml
+./roomr -config roomr.yaml   # the file from the quick start
 ```
 
 End-to-end tests (`go test ./e2e/...`) need Docker and NATS; see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -86,7 +87,7 @@ End-to-end tests (`go test ./e2e/...`) need Docker and NATS; see [CONTRIBUTING.m
 
 | Roomr | Fonoster |
 | --- | --- |
-| 0.1.x | main (October 2026) |
+| 0.1.x | main, once [fonoster/fonoster#1097](https://github.com/fonoster/fonoster/pull/1097) lands (it still builds Roomr from its own tree today) |
 
 ## Community
 

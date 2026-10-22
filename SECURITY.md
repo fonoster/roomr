@@ -2,10 +2,9 @@
 
 ## Reporting a vulnerability
 
-Please do **not** open a public issue for a security problem. Use GitHub's private reporting:
-[Report a vulnerability](https://github.com/fonoster/roomr/security/advisories/new), or email
-team@fonoster.com. Include the version, a description, and steps to reproduce if you can. We
-acknowledge reports within three working days and keep you informed until a fix ships.
+Please do **not** open a public issue for a security problem. Email team@fonoster.com. Include
+the version, a description, and steps to reproduce if you can. We acknowledge reports within
+three working days and keep you informed until a fix ships.
 
 ## Supported versions
 

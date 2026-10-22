@@ -52,6 +52,7 @@ gRPC codes with a `google.rpc.ErrorInfo` whose domain is `roomr.fonoster.com`:
 | `ALREADY_EXISTS` | `room_exists`, `call_exists` (same `call_ref`, different parameters) |
 | `INVALID_ARGUMENT` | `bad_message`, `unsupported_codec` |
 | `UNIMPLEMENTED` | `not_supported` |
+| `INTERNAL` | `internal` (anything the node did not expect) |
 
 ## `session.v1.Session`: the per-call stream
 
@@ -115,7 +116,7 @@ Core NATS only. The node runs with NATS down, buffers nothing and does not repla
 
 | Subject | Messages |
 | --- | --- |
-| `roomr.nodes.<node_ref>.heartbeat` | `node.heartbeat` every `heartbeatInterval` (`rooms`, `participants`, `max_rooms`, `codecs`, `version`, `region`, `control_addr`, `sip_addr`, `rtp_ports`); `node.down` when draining starts |
+| `roomr.nodes.<node_ref>.heartbeat` | `node.heartbeat` every `heartbeatInterval` (`rooms`, `participants`, `max_rooms`, `codecs`, `version`, `region`, `control_addr`, `sip_addr`, and `rtp_ports` when a range is configured); `node.down` when draining starts |
 | `roomr.nodes.<node_ref>.events` | `registration.state` (`registered`, `failed`, `expired`, `unregistered`) |
 | `roomr.events.<call_ref>` | `call.started`, `call.ringing`, `call.answered`, `call.ended` (`cause`, `sip_status`, `answered`), `participant.joined`, `participant.left` |
 | `roomr.events.room.<room_ref>` | `room.ended` (`cause`) and RTP participants' events |
