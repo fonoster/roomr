@@ -1,0 +1,72 @@
+# Roomr nodes: each pod is one node, its id is the pod name.
+image:
+  repository: fonoster/roomr
+  tag: ""            # empty: the chart's appVersion
+  pullPolicy: IfNotPresent
+
+replicas: 2
+
+# RTP is UDP on a port range, so the pod uses the host network by default. Every leg (SIP and app)
+# uses the one range in config.rtp on the node's address, and nothing coordinates ports between
+# nodes: with hostNetwork run one node per host, or give nodes that share a host non-overlapping
+# ranges and different SIP and control ports (a second release). On the pod network every pod has
+# its own IP and nodes can share a range.
+hostNetwork: true
+
+# On SIGTERM the node fails its gRPC readiness probe, unregisters, publishes node.down and keeps its
+# live rooms until they end or this many seconds pass (config drainWait is set to it). The pod's
+# terminationGracePeriodSeconds is this plus a margin.
+drainGraceSeconds: 600
+
+# Keeps voluntary disruptions from taking every node at once: minAvailable (default 1) or
+# maxUnavailable; null renders no PodDisruptionBudget.
+podDisruptionBudget: { minAvailable: 1 }
+
+# The node's configuration, rendered as /config/roomr.yaml (see docs/CONFIGURATION.md for every
+# key). ${VAR} placeholders are filled by the node from the environment: the chart sets POD_NAME,
+# HOST_IP and, on the pod network, POD_IP; add more with `env` and `envFrom`.
+config:
+  nodeId: ${POD_NAME}
+  sip:
+    listen: 0.0.0.0:5060
+    advertise: ${HOST_IP}
+  rtp:
+    host: 0.0.0.0
+    advertise: ${HOST_IP}
+    portMin: 30000
+    portMax: 30199
+  control:
+    grpc:
+      listen: 0.0.0.0:50061
+  # Required: where each call's control stream goes (host:port of your app's Session server).
+  sessionEndpoint: ""
+
+# On the pod network the node advertises its pod IP as the control address; set this to render
+# control.grpc.advertise as ${POD_IP}:<control port>. Ignored with hostNetwork.
+advertisePodIP: true
+
+# Extra environment for the container (list of EnvVar), for example secrets referenced as
+# ${NAME} in config or as secret://env/NAME.
+env: []
+envFrom: []
+
+# Optional SIP over TLS and gRPC TLS: mount a Secret at /etc/roomr/tls (tls.crt, tls.key, ca.crt)
+# and point config.tls at those paths.
+tls:
+  enabled: false
+  secret: roomr-tls
+
+# Roomr authenticates neither RPCs nor SIP sources, so the network does. On the pod network
+# (hostNetwork: false) this NetworkPolicy admits the control port only from controlFrom and the SIP
+# port only from sipFrom; RTP stays open. A NetworkPolicy does not apply to host-network pods: use
+# a host firewall there.
+networkPolicy:
+  enabled: true
+  controlFrom: []    # e.g. - podSelector: { matchLabels: { app.kubernetes.io/name: controller } }
+  sipFrom: []        # e.g. - podSelector: { matchLabels: { app.kubernetes.io/name: routr } }
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

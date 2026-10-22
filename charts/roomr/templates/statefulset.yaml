@@ -1,0 +1,95 @@
+{{- $control := (.Values.config.control | default dict).grpc | default dict }}
+{{- $controlPort := include "roomr.port" (default "0.0.0.0:50061" $control.listen) }}
+{{- $sipPort := include "roomr.port" (default "0.0.0.0:5060" (.Values.config.sip | default dict).listen) }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "roomr.name" . }}
+  labels:
+    {{- include "roomr.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "roomr.name" . }}
+  replicas: {{ .Values.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "roomr.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "roomr.selector" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      hostNetwork: {{ .Values.hostNetwork }}
+      {{- if .Values.hostNetwork }}
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      # The node drains for drainGraceSeconds after SIGTERM; the grace period is that plus a margin,
+      # so the kubelet never kills a pod that is still draining.
+      terminationGracePeriodSeconds: {{ add .Values.drainGraceSeconds 30 }}
+      containers:
+        - name: roomr
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The node's only flag is -config; the default is /config/roomr.yaml (mounted below).
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: HOST_IP
+              valueFrom: { fieldRef: { fieldPath: status.hostIP } }
+            {{- if not .Values.hostNetwork }}
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+            {{- end }}
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - { name: sip-udp, containerPort: {{ $sipPort }}, protocol: UDP }
+            - { name: sip-tcp, containerPort: {{ $sipPort }}, protocol: TCP }
+            - { name: control, containerPort: {{ $controlPort }}, protocol: TCP }
+          # Roomr serves the standard gRPC health service on the control port: SERVING normally,
+          # NOT_SERVING from SIGTERM on (readiness fails; live rooms keep running until they end).
+          startupProbe:
+            grpc: { port: {{ $controlPort }} }
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            grpc: { port: {{ $controlPort }} }
+            periodSeconds: 5
+            failureThreshold: 1
+          volumeMounts:
+            - { name: config, mountPath: /config/roomr.yaml, subPath: roomr.yaml, readOnly: true }
+            {{- if .Values.tls.enabled }}
+            - { name: tls, mountPath: /etc/roomr/tls, readOnly: true }
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "roomr.name" . }}
+        {{- if .Values.tls.enabled }}
+        - name: tls
+          secret: { secretName: {{ .Values.tls.secret | quote }} }
+        {{- end }}

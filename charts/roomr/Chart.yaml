@@ -1,0 +1,10 @@
+apiVersion: v2
+name: roomr
+description: "Roomr, the SIP and media edge for voice AI. A StatefulSet of nodes with drain-aware rollouts."
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/fonoster/roomr
+sources:
+  - https://github.com/fonoster/roomr
+keywords: [sip, voip, rtp, voice-ai, media]

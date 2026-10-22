@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -91,11 +92,24 @@ jobs:
           node-version: "22.x"
       - run: npx -y @fission-ai/openspec@1.14.3 validate --specs
 
+  chart:
+    name: helm chart lints and renders
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint and render (host network, then pod network with the policy)
+        run: |
+          helm lint charts/roomr --set config.sessionEndpoint=app:50070
+          helm template r charts/roomr --set config.sessionEndpoint=app:50070 > /dev/null
+          helm template r charts/roomr --set config.sessionEndpoint=app:50070 --set hostNetwork=false \
+            --set 'networkPolicy.controlFrom[0].podSelector.matchLabels.x=y' > /dev/null
+
   # The one check branch protection requires.
   passed:
     name: CI passed
     if: always()
-    needs: [go, image, specs]
+    needs: [go, image, specs, chart]
     runs-on: ubuntu-latest
     steps:
       - name: Every job succeeded

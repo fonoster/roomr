@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "roomr.name" . }}
+  labels:
+    {{- include "roomr.labels" . | nindent 4 }}
+data:
+  roomr.yaml: |
+    {{- include "roomr.config" . | nindent 4 }}

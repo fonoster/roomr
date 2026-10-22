@@ -1,0 +1,37 @@
+{{- if and .Values.networkPolicy.enabled (not .Values.hostNetwork) }}
+{{- $control := (.Values.config.control | default dict).grpc | default dict }}
+{{- $controlPort := include "roomr.port" (default "0.0.0.0:50061" $control.listen) }}
+{{- $sip := .Values.config.sip | default dict }}
+{{- $sipPort := include "roomr.port" (default "0.0.0.0:5060" $sip.listen) }}
+{{- $rtp := .Values.config.rtp | default dict }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "roomr.name" . }}
+  labels:
+    {{- include "roomr.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "roomr.selector" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    {{- with .Values.networkPolicy.controlFrom }}
+    # Roomr (gRPC) and grpc.health.v1: the controller only (kubelet probes are not affected).
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - { port: {{ $controlPort }}, protocol: TCP }
+    {{- end }}
+    {{- with .Values.networkPolicy.sipFrom }}
+    # SIP: the SIP proxy only.
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - { port: {{ $sipPort }}, protocol: UDP }
+        - { port: {{ $sipPort }}, protocol: TCP }
+    {{- end }}
+    # RTP for every leg (SIP legs and app legs): one range, from anywhere.
+    - ports:
+        - { port: {{ $rtp.portMin | default 30000 | int }}, endPort: {{ $rtp.portMax | default 30199 | int }}, protocol: UDP }
+{{- end }}
