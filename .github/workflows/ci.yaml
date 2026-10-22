@@ -57,7 +57,7 @@ jobs:
 
       - name: JUnit
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-roomr-go
           path: reports/junit/
@@ -103,7 +103,7 @@ jobs:
           npx mocha --reporter mocha-junit-reporter --reporter-options mochaFile=../reports/junit/roomr-contract.xml
       - name: JUnit
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-roomr-contract
           path: reports/junit/
