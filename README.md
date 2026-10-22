@@ -70,6 +70,7 @@ Next: [write the app and the controller](docs/INTEGRATE.md).
 | [Integrate](docs/INTEGRATE.md) | Run a node, write an app and a controller, test it |
 | [The fake](docs/FAKE.md) | `fonoster/roomr-fake` and `@fonoster/roomr` for your tests |
 | [Configuration](docs/CONFIGURATION.md) | Every `roomr.yaml` setting, ports, draining, codecs |
+| [Performance](docs/PERFORMANCE.md) | The 200-room load bar on 2 vCPU (GOMAXPROCS=2), G.711 and Opus |
 | [Specs](openspec/specs) | The requirements, with scenarios |
 | [`llms.txt`](llms.txt) | An index for AI tools |
 
