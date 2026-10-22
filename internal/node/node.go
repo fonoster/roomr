@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fonoster/roomr/internal/audio"
@@ -77,6 +78,9 @@ type Config struct {
 	ControlAddr, SIPAddr string
 	RTPPorts             [2]int
 	Version, Region      string
+	// ReportRooms, when set, is the room count heartbeats report instead of the real one
+	// (roomr-fake only: a node whose heartbeat is stale).
+	ReportRooms func(actual int) int
 }
 
 func (c *Config) defaults() {
@@ -142,6 +146,8 @@ type Node struct {
 	stop     chan struct{}
 	downOnce sync.Once
 	beatMu   sync.Mutex
+	// killed: Kill ran, so nothing more is published (fake.go).
+	killed atomic.Bool
 
 	// OnRoomCount is told the number of active rooms whenever it changes (registrations).
 	OnRoomCount func(n int)
@@ -333,13 +339,17 @@ func (n *Node) beat() {
 		participants += len(r.participants)
 		r.mu.Unlock()
 	}
-	n.publish(HeartbeatSubject(n.cfg.NodeID), n.heartbeat(len(rooms), participants))
+	count := len(rooms)
+	if f := n.cfg.ReportRooms; f != nil {
+		count = f(count)
+	}
+	n.publish(HeartbeatSubject(n.cfg.NodeID), n.heartbeat(count, participants))
 }
 
 // publish sends one event on core NATS, best effort: while NATS is unreachable the event is
 // dropped (the connection buffers nothing), never retried and never blocks a call.
 func (n *Node) publish(subject string, ev Event) {
-	if n.nc == nil {
+	if n.nc == nil || n.killed.Load() {
 		return
 	}
 	data, err := json.Marshal(ev)

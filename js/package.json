@@ -1,0 +1,61 @@
+{
+  "name": "@fonoster/roomr",
+  "version": "0.0.0",
+  "description": "Roomr's gRPC client and protos, the client of the Roomr fake, and the contract suite that proves a node",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fonoster/roomr.git",
+    "directory": "js"
+  },
+  "homepage": "https://github.com/fonoster/roomr/blob/main/docs/FAKE.md",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./fake": "./dist/fake/index.js",
+    "./contract": "./dist/contract/index.js"
+  },
+  "typesVersions": {
+    "*": {
+      "fake": [
+        "dist/fake/index.d.ts"
+      ],
+      "contract": [
+        "dist/contract/index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist",
+    "protos"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "protos": "rm -rf protos && mkdir -p protos/roomr/v1 protos/session/v1 && cp ../api/roomr/v1/roomr.proto protos/roomr/v1/ && cp ../api/session/v1/session.proto protos/session/v1/",
+    "build": "npm run protos && rm -rf dist && tsc -p tsconfig.json",
+    "test": "mocha"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "~1.14.6",
+    "@grpc/proto-loader": "^0.8.1",
+    "nats": "^2.29.3"
+  },
+  "peerDependencies": {
+    "mocha": ">=10"
+  },
+  "peerDependenciesMeta": {
+    "mocha": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.19.0",
+    "mocha": "^11.7.5",
+    "mocha-junit-reporter": "^2.2.1",
+    "typescript": "^5.9.3"
+  }
+}

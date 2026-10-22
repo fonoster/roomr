@@ -70,6 +70,10 @@ func toStatus(err error) error {
 	if err == nil {
 		return nil
 	}
+	// Already a gRPC status (a backend that refuses on its own terms, e.g. roomr-fake's faults).
+	if _, ok := status.FromError(err); ok {
+		return err
+	}
 	var ne *node.Error
 	if errors.As(err, &ne) {
 		c, ok := codeFor[ne.Code]
@@ -281,6 +285,9 @@ func (s *Server) Serve() error {
 	}
 	return err
 }
+
+// Abort closes the listener and every connection at once, as a crashed node would (roomr-fake).
+func (s *Server) Abort() { s.grpc.Stop() }
 
 // Stop finishes in-flight RPCs (up to 5 s) and closes the listener.
 func (s *Server) Stop() {
