@@ -15,6 +15,7 @@ heartbeats and events, best effort.
 - [Integrate](docs/INTEGRATE.md): run a node, write an app and a controller, test it.
 - [The fake](docs/FAKE.md): fonoster/roomr-fake (real nodes behind an HTTP control API) and the @fonoster/roomr npm package (client, fake client, contract suite).
 - [Configuration](docs/CONFIGURATION.md): every `roomr.yaml` setting, ports, draining, codecs.
+- [Performance](docs/PERFORMANCE.md): the 200-room load bar (G.711, 2 vCPU approximated with GOMAXPROCS=2) and Opus, measured.
 
 ## Source of truth
 

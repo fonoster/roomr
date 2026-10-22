@@ -3,8 +3,8 @@
 This is the high-level map. It is written to be read by people and by AI tools, so every diagram is
 text (Mermaid) and every claim points at the place that proves it. For field-level detail see
 [CONTRACT.md](CONTRACT.md); to build on top of Roomr see [INTEGRATE.md](INTEGRATE.md); for every
-setting see [CONFIGURATION.md](CONFIGURATION.md). The normative behavior lives in
-[`openspec/specs`](../openspec/specs).
+setting see [CONFIGURATION.md](CONFIGURATION.md); for measured capacity see
+[PERFORMANCE.md](PERFORMANCE.md). The normative behavior lives in [`openspec/specs`](../openspec/specs).
 
 ## Purpose
 
