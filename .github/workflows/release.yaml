@@ -84,21 +84,24 @@ jobs:
         with:
           node-version: "22.x"
           registry-url: "https://registry.npmjs.org"
+      # Trusted publishing needs npm 11.5.1 or later (Node 22 ships npm 10).
+      - run: npm install -g npm@11.6.2
       - run: npm ci
       - name: Version from the tag
         run: npm version --no-git-tag-version "${GITHUB_REF_NAME#v}"
       - run: npm run build
+      # Trusted publishing: npm verifies this run (id-token), so no npm token is stored. The
+      # package's trusted publisher on npmjs.com is fonoster/roomr, release.yaml.
       - name: Publish (a pre-release goes to the next tag)
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           TAG=latest
           case "$GITHUB_REF_NAME" in *-*) TAG=next ;; esac
           npm publish --access public --provenance --tag "$TAG"
 
+  # Not after npm: the images, protos and binaries ship even when the npm publish fails.
   release:
     name: GitHub release
-    needs: [images, npm]
+    needs: images
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
