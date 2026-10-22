@@ -366,8 +366,10 @@ func leftMsg(cause string) func(*sessionv1.NodeMessage) bool {
 // ---- the rig ------------------------------------------------------------------------------------
 
 type rig struct {
-	t      *testing.T
-	nc     *nats.Conn
+	t  *testing.T
+	nc *nats.Conn
+	// nodeNC is the node's own connection: nc itself, or the proxied one.
+	nodeNC *nats.Conn
 	node   *node.Node
 	ua     *sipua.UA
 	sip    string
@@ -408,6 +410,9 @@ type rigOptions struct {
 	nodeCfg func(*node.Config)
 	uaCfg   func(*sipua.Config)
 	botOpts caller.Options
+	// natsProxy, when set, routes the node's NATS connection through it with the production
+	// options; the rig's own subscriptions stay direct, so they keep seeing what is published.
+	natsProxy *natsProxy
 }
 
 func (o rigOptions) bot() caller.Options {
@@ -439,7 +444,13 @@ func startWith(t *testing.T, o rigOptions) *rig {
 	if o.nodeCfg != nil {
 		o.nodeCfg(&cfg)
 	}
-	n := node.New(nc, cfg)
+	nodeNC := nc
+	if o.natsProxy != nil {
+		if nodeNC, err = nats.Connect(o.natsProxy.URL(), productionNATSOptions()...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n := node.New(nodeNC, cfg)
 	port := freePort(t)
 	addr := "127.0.0.1:" + strconv.Itoa(port)
 	uaCfg := sipua.Config{Listen: addr, AdvertiseHost: "127.0.0.1", AdvertisePort: port, OutboundProxy: cfg.OutboundProxy}
@@ -457,7 +468,7 @@ func startWith(t *testing.T, o rigOptions) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{t: t, nc: nc, node: n, ua: ua, sip: addr, bot: bot, callee: callee, app: app}
+	r := &rig{t: t, nc: nc, nodeNC: nodeNC, node: n, ua: ua, sip: addr, bot: bot, callee: callee, app: app}
 	record := func(m *nats.Msg) {
 		var ev map[string]any
 		if json.Unmarshal(m.Data, &ev) != nil || ev["node_ref"] != id || ev["type"] == "node.heartbeat" {
@@ -484,6 +495,7 @@ func startWith(t *testing.T, o rigOptions) *rig {
 		ucancel()
 		cancel()
 		ua.Close()
+		nodeNC.Close()
 		nc.Close()
 	})
 	return r
