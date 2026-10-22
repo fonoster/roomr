@@ -246,7 +246,12 @@ export class FakeNode {
   /** The phone calls the node; resolves once the INVITE is sent. */
   async placeCall(call: InboundCall = {}): Promise<FakeCall> {
     const status = await this.fake.request<CallStatus>("POST", this.path("/calls"), call);
-    return new FakeCall(this.fake, status.callRef);
+    return new FakeCall(this.fake, status.callRef, this.nodeRef);
+  }
+
+  /** A call on this node (call_refs are unique per node, not across the fake's nodes). */
+  call(callRef: string): FakeCall {
+    return new FakeCall(this.fake, callRef, this.nodeRef);
   }
 
   /** How the phone answers what the node dials: every call, or one call_ref. */
@@ -295,20 +300,27 @@ export class FakeNode {
   }
 }
 
-/** A call by call_ref, and the phone's leg on it. */
+/** A call by call_ref (on one node when nodeRef is set), and the phone's leg on it. */
 export class FakeCall {
   constructor(
     private readonly fake: FakeRoomr,
-    readonly callRef: string
+    readonly callRef: string,
+    readonly nodeRef?: string
   ) {}
 
-  private path(suffix = "") {
-    return `/calls/${encodeURIComponent(this.callRef)}${suffix}`;
+  private path(suffix = "", query: Record<string, string> = {}) {
+    const q = new URLSearchParams({ ...(this.nodeRef ? { node: this.nodeRef } : {}), ...query }).toString();
+    return `/calls/${encodeURIComponent(this.callRef)}${suffix}${q ? `?${q}` : ""}`;
   }
 
   /** The node's state and the phone's; `since` (unix ms) adds audio measures from then on. */
   status(since?: number): Promise<CallStatus> {
-    return this.fake.request("GET", this.path(since ? `?since=${since}` : ""));
+    return this.fake.request("GET", this.path("", since ? { since: String(since) } : {}));
+  }
+
+  /** The node stops (or resumes) its RTP to the call's app leg; the call goes on. */
+  stopAppMedia(stopped = true): Promise<void> {
+    return this.fake.request("POST", this.path("/app-media"), { stopped });
   }
 
   /** What the app sent on the call's control stream, in order (type: answer, hold, sendDtmf, ...). */

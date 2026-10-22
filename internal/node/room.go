@@ -52,6 +52,8 @@ type Participant struct {
 	answered atomic.Bool
 	// announced: participant.joined went out (participant.left follows only then).
 	announced atomic.Bool
+	// stopped: the room sends this participant nothing (roomr-fake: a node whose RTP stopped).
+	stopped atomic.Bool
 	// since is when the participant joined (media timeouts count from it at the earliest).
 	since time.Time
 	// srtpKey is the node's SDES key on an encrypted leg ("" for plain RTP); cryptoTag answers
@@ -581,6 +583,9 @@ func (r *Room) tick() {
 	for i, p := range parts {
 		if p.Kind == KindPhone && !p.answered.Load() {
 			continue // no early media
+		}
+		if p.stopped.Load() {
+			continue
 		}
 		if out, held := music[p.Ref]; held {
 			if out == nil {

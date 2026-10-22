@@ -17,6 +17,23 @@ func (n *Node) EndCallWith(ref, cause string, status int) error {
 	return nil
 }
 
+// StopAppMedia stops (or resumes) the node's RTP to a call's app leg while the call and its
+// control stream go on, as a node whose media path broke would.
+func (n *Node) StopAppMedia(ref string, stopped bool) error {
+	c := n.call(ref)
+	if c == nil {
+		return errorf(CodeCallNotFound, "%s", ref)
+	}
+	c.mu.Lock()
+	app := c.app
+	c.mu.Unlock()
+	if app == nil {
+		return errorf(CodeParticipantNotFound, "call %s has no app leg", ref)
+	}
+	app.stopped.Store(stopped)
+	return nil
+}
+
 // Kill stops the node as a crash would: the heartbeats stop without node.down, every call's
 // control stream drops without Ended, and nothing more is published on NATS.
 func (n *Node) Kill() {
