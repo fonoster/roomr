@@ -152,6 +152,8 @@ type Node struct {
 	beatMu   sync.Mutex
 	// killed: Kill ran, so nothing more is published (fake.go).
 	killed atomic.Bool
+	// published, when set, sees every event as it is published (tests: no NATS needed).
+	published func(subject string, ev Event)
 
 	// OnRoomCount is told the number of active rooms whenever it changes (registrations).
 	OnRoomCount func(n int)
@@ -353,6 +355,9 @@ func (n *Node) beat() {
 // publish sends one event on core NATS, best effort: while NATS is unreachable the event is
 // dropped (the connection buffers nothing), never retried and never blocks a call.
 func (n *Node) publish(subject string, ev Event) {
+	if n.published != nil {
+		n.published(subject, ev)
+	}
 	if n.nc == nil || n.killed.Load() {
 		return
 	}

@@ -248,9 +248,7 @@ func (c *call) end(cause string, status int) {
 	if room != nil {
 		for _, p := range append([]*Participant{leg, app}, parties...) {
 			if p != nil {
-				if taken := room.take(p.Ref); taken != nil {
-					room.retire(taken, cause)
-				}
+				room.remove(p.Ref, cause)
 			}
 		}
 	}
