@@ -18,8 +18,9 @@ docker run --rm --network host \
   fonoster/roomr
 ```
 
-A minimal `roomr.yaml` (every key is in [CONFIGURATION.md](CONFIGURATION.md); examples for
-Compose and Kubernetes are in [`examples/`](../examples)):
+A minimal `roomr.yaml` (every key is in [CONFIGURATION.md](CONFIGURATION.md); the Compose
+examples are in [`examples/`](../examples), and the Helm chart in [`charts/roomr`](../charts/roomr)
+renders one for Kubernetes):
 
 ```yaml
 nodeId: node-a
@@ -136,11 +137,13 @@ reach SIP, only the controller may reach gRPC.
 - Run the real node with the example configs in [`examples/`](../examples).
 - The [`cmd/sipcaller`](../cmd/sipcaller) tool places a SIP call into a node, and
   [`cmd/loadgen`](../cmd/loadgen) drives many calls and serves a session endpoint.
-- For tests that must not run a real node, use the fake (see below).
+- For tests that must not run a real node, a fake is planned (see below).
 
-## Testing without a real node: the fake
+## Testing without a real node: the fake (planned, not yet available)
 
-`fonoster/roomr-fake` implements the same two gRPC interfaces and the NATS events, with no SIP and
-no media, and is scripted over a small control API (refuse a call, go silent, end with a given
-cause). The same contract tests run against the real node and the fake in this repository's CI, so
-the fake cannot drift from the node. See [`cmd/fakeroomr`](../cmd/fakeroomr).
+A fake node, `fonoster/roomr-fake`, is planned in
+[#13](https://github.com/fonoster/roomr/issues/13): it will implement the same two gRPC interfaces
+and the NATS events, with no SIP and no media, scripted over a small control API (refuse a call,
+go silent, end with a given cause), with the same contract tests run against the real node and the
+fake in this repository's CI so the fake cannot drift from the node. Until it ships, test against
+the real node with the tools above.

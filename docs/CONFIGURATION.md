@@ -1,7 +1,7 @@
 # Configuration and operations reference
 
-The Roomr node replaces Asterisk: SIP legs become **rooms** that mix audio for their
-participants (mix-minus, 16 kHz linear). A controller (in Fonoster, the apiserver) drives it over
+The Roomr node is the SIP and media edge (in Fonoster it replaced Asterisk): SIP legs become
+**rooms** that mix audio for their participants (mix-minus, 16 kHz linear). A controller (in Fonoster, the apiserver) drives it over
 the `roomr.v1.Roomr` gRPC service; each call's app (in Fonoster, AppBridge behind a Kubernetes
 Service) drives that call over its own control stream (`session.v1.Session.Connect`), with the
 audio as RTP between the node and the app. NATS carries only heartbeats and events. The node
@@ -11,13 +11,13 @@ its configuration or from requests. Specs: `openspec/specs/roomr` and `openspec/
 ## Run
 
 ```sh
-cd go/roomr
 go build ./cmd/...
 ./roomr -config roomr.yaml
 ```
 
 `-config` is the node's only flag (default `/config/roomr.yaml` when it exists); every setting is
-a key in that file (see `examples/roomr.compose.yaml` and design.md's "Minimal
+a key in that file (see [`examples/roomr.compose.yaml`](../examples/roomr.compose.yaml) and the
+redesign's [design.md](../openspec/changes/archive/2026-10-22-redesign-roomr/design.md), "Minimal
 roomr.yaml"). Unknown keys and any other flag stop the node. The node reads no `ROOMR_*`
 variables: reference one in the file as `${VAR}` (or `${VAR:-default}`), or as `secret://env/NAME`
 for passwords and TLS PEM settings.
@@ -92,8 +92,8 @@ Core NATS only, best effort: the node starts and keeps calls, RPCs and streams r
 is down, buffers nothing and drops events it cannot publish (no replay).
 
 - `roomr.nodes.<node_ref>.heartbeat`: `node.heartbeat` every `heartbeatInterval` (`rooms`,
-  `participants`, `max_rooms`, `codecs`, `version`, `region`, `control_addr`, `sip_addr`,
-  `rtp_ports`), and `node.down` when draining starts.
+  `participants`, `max_rooms`, `codecs`, `version`, `region`, `control_addr`, `sip_addr`, and
+  `rtp_ports` when a range is configured), and `node.down` when draining starts.
 - `roomr.nodes.<node_ref>.events`: `registration.state`.
 - `roomr.events.<call_ref>`: `call.started`, `call.ringing`, `call.answered`, `call.ended`
   (`cause`, `sip_status`, `answered`), `participant.joined`/`left` for the call's legs (`kind`
@@ -122,7 +122,7 @@ never do. Set `terminationGracePeriodSeconds` above `drainWait` and a PodDisrupt
 
 | Port | | Reachable from |
 | --- | --- | --- |
-| `sip.listen` (5060 UDP/TCP; `tls.listen` 5061) | SIP | the SIP proxy only |
+| `sip.listen` (5060 UDP/TCP; `tls.listen` when set, e.g. 5061) | SIP | the SIP proxy only |
 | `control.grpc.listen` (50061 TCP) | `Roomr` and `grpc.health.v1.Health` | the controller only (and the kubelet's probe) |
 | `rtp.portMin`-`rtp.portMax` (UDP) | every RTP leg, SIP and app | media sources; the only range to publish |
 

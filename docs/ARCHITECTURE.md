@@ -70,6 +70,7 @@ sequenceDiagram
   participant P as SIP proxy
   participant N as Roomr node
   participant A as App (session endpoint)
+  participant NATS
 
   C->>P: INVITE
   P->>N: INVITE
@@ -82,7 +83,7 @@ sequenceDiagram
   C-)N: RTP (caller leg)
   N-)A: RTP L16/16000 (app leg, mixed)
   A-)N: RTP L16/16000
-  Note over N,A: keepalive pings every 10 s;<br/>events: ParticipantJoined, Dtmf, ...
+  Note over N,A: keepalive pings every 10 s,<br/>events: ParticipantJoined, Dtmf, ...
   C->>P: BYE
   P->>N: BYE
   N->>A: Ended{cause: caller_hangup}
@@ -102,6 +103,7 @@ sequenceDiagram
   participant N as Roomr node
   participant P as SIP proxy
   participant A as App
+  participant NATS
 
   X->>N: CreateCall{call_ref, to, from, session, metadata}
   N-->>X: Call{RINGING, room_ref}
