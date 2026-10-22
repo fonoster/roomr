@@ -20,7 +20,7 @@ docker run --rm --network host \
 
 A minimal `roomr.yaml` (every key is in [CONFIGURATION.md](CONFIGURATION.md); the Compose
 examples are in [`examples/`](../examples), and the Helm chart in [`charts/roomr`](../charts/roomr)
-renders one for Kubernetes):
+renders one for Kubernetes; each release publishes it as `oci://ghcr.io/fonoster/charts/roomr`):
 
 ```yaml
 nodeId: node-a

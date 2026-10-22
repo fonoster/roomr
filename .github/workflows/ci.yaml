@@ -154,6 +154,13 @@ jobs:
           helm template r charts/roomr --set config.sessionEndpoint=app:50070 > /dev/null
           helm template r charts/roomr --set config.sessionEndpoint=app:50070 --set hostNetwork=false \
             --set 'networkPolicy.controlFrom[0].podSelector.matchLabels.x=y' > /dev/null
+          # Embedded in a parent chart: its ConfigMap, a templated env entry.
+          printf '%s\n' 'existingConfigMap: "{{ .Release.Name }}-parent"' \
+            'env: [{ name: X, value: "{{ .Release.Name }}-x" }]' > /tmp/embedded.yaml
+          out=$(helm template r charts/roomr -f /tmp/embedded.yaml)
+          echo "$out" | grep -q 'name: r-parent'
+          echo "$out" | grep -q 'value: r-x'
+          ! echo "$out" | grep -q 'kind: ConfigMap'
 
   # The one check branch protection requires.
   passed:
