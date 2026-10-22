@@ -14,7 +14,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./fake": "./dist/fake/index.js",
-    "./contract": "./dist/contract/index.js"
+    "./contract": "./dist/contract/index.js",
+    "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
