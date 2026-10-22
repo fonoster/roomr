@@ -762,13 +762,13 @@
           "name": "Copy",
           "width": 520,
           "layout": "vertical",
-          "gap": 40,
+          "gap": 48,
           "children": [
             {
               "type": "frame",
               "id": "gSUSN",
               "name": "Logo",
-              "gap": 3,
+              "gap": 5,
               "alignItems": "end",
               "children": [
                 {
@@ -778,9 +778,9 @@
                   "fill": "$text-primary",
                   "content": "roomr",
                   "fontFamily": "$font-sans",
-                  "fontSize": 44,
+                  "fontSize": 76,
                   "fontWeight": "600",
-                  "letterSpacing": -1
+                  "letterSpacing": -2
                 },
                 {
                   "type": "frame",
@@ -789,7 +789,7 @@
                   "padding": [
                     0,
                     0,
-                    15.5,
+                    26.5,
                     0
                   ],
                   "children": [
@@ -798,8 +798,8 @@
                       "id": "p1QPcw",
                       "name": "Dot",
                       "fill": "$accent",
-                      "width": 9,
-                      "height": 9
+                      "width": 15,
+                      "height": 15
                     }
                   ]
                 }
