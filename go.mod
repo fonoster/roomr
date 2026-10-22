@@ -1,6 +1,6 @@
 module github.com/fonoster/roomr
 
-go 1.26.9
+go 1.27.2
 
 require (
 	github.com/emiago/sipgo v1.6.0
