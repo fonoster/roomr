@@ -24,13 +24,17 @@ INVITE to the node, so the node opens the call's control stream exactly as for a
 phone's callee SHALL answer what the node dials as scripted (`answer`, `busy`, `no_answer`,
 `decline`, `unavailable` or `ring`, after a delay, per call_ref or for every call). A call SHALL be
 addressable by its call_ref to read its SIP statuses and state, play audio, send DTMF, read what
-the phone heard, hang up, go silent, answer a ringing callee, or be ended by the node with a given
+the phone heard, hang up, go silent, answer a ringing callee, read what the app sent on its control stream, or be ended by the node with a given
 cause and SIP status. Case id FAK-002.
 
 #### Scenario: Inbound call reaches the session endpoint
 - **WHEN** a test places an inbound call with headers `X-App-Ref: app-1`
 - **THEN** the session endpoint receives Start with direction INBOUND and that header
 - **AND** after the app's Answer the call's SIP statuses are 180 then 200
+
+#### Scenario: The app's messages are readable
+- **WHEN** the app answers an inbound call
+- **THEN** the call's commands list `answer` first
 
 #### Scenario: A ringing callee answers on demand
 - **WHEN** the callee for call_ref `c1` is `ring` and a controller sends CreateCall `c1`

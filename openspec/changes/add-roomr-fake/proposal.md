@@ -14,8 +14,9 @@ node, and prove it against the same contract suite as the real image (fonoster/r
   scripts callees, plays caller audio, sends DTMF, hangs up, silences a leg, ends a call with a
   given cause, injects gRPC faults, pre-fills rooms, skews heartbeats, kills a node and crashes the
   process.
-- Two internal hooks on the node used only by the fake: end a call with a given cause and SIP
-  status, and report a different room count in heartbeats. The real binary never calls them.
+- Internal hooks on the node used only by the fake: end a call with a given cause and SIP status,
+  kill the node as a crash would, report a different room count in heartbeats, observe the app's
+  messages, and tell the dialer which call_ref it dials. The real binary never uses them.
 - The caller bot's callee can be scripted per call (by call_ref) and can ring until told to answer.
 - New npm package `@fonoster/roomr`: the Roomr gRPC client with the protos (`@fonoster/roomr`),
   the fake's client (`@fonoster/roomr/fake`) and the contract suite (`@fonoster/roomr/contract`).

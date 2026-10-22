@@ -75,6 +75,7 @@ Calls, by call_ref:
 | | |
 | --- | --- |
 | `GET /calls/{call}` | The node's `state` (`ringing`, `answered`, `ended`), `roomRef`, `held`, and the phone's side: SIP statuses, heard and audible audio, keys received. `?since=<unix ms>` adds audio measures from then on |
+| `GET /calls/{call}/commands` | What the app sent on the call's control stream, in order: `{"commands": [{"at", "callRef", "command": {"type": "answer", ...}}]}` |
 | `POST /calls/{call}/answer` | Answer a callee ringing in mode `ring` |
 | `POST /calls/{call}/end` | The node ends the call: `{"cause": "node_error", "sipStatus": 503}` |
 | `POST /calls/{call}/hangup` | The phone hangs up |

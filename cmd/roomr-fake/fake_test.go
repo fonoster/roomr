@@ -232,6 +232,11 @@ func TestFAK002_ThePhoneCallsAndAnswersLikeAPhone(t *testing.T) {
 			r.call("GET", "/calls/"+v.CallRef, nil, &v)
 			return v.Phone != nil && slices.Contains(v.Phone.SIP, 180) && slices.Contains(v.Phone.SIP, 200)
 		})
+		var cmds struct{ Commands []command }
+		r.call("GET", "/calls/"+v.CallRef+"/commands", nil, &cmds)
+		if len(cmds.Commands) == 0 || cmds.Commands[0].Command["type"] != "answer" {
+			t.Fatalf("commands: %+v", cmds.Commands)
+		}
 	})
 
 	t.Run("a ringing callee answers on demand", func(t *testing.T) {

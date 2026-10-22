@@ -79,7 +79,13 @@ export function describeContract(makeTarget: () => Promise<ContractTarget>, nats
       app.mode = { kind: "answer" };
     });
 
-    const events = (callRef: string) => nc.subscribe(`roomr.events.${callRef}`);
+    // Flushed, so the server has the subscription before the call that publishes on it starts.
+    const subscribe = async (subject: string) => {
+      const sub = nc.subscribe(subject);
+      await nc.flush();
+      return sub;
+    };
+    const events = (callRef: string) => subscribe(`roomr.events.${callRef}`);
     const outbound = (callRef: string, metadata: Record<string, string> = {}) =>
       roomr.createCall({ callRef, to: { uri: "sip:+15551230000@carrier", headers: { "X-Call-Ref": callRef } }, metadata });
 
@@ -112,7 +118,7 @@ export function describeContract(makeTarget: () => Promise<ContractTarget>, nats
 
     it("[CON-004] an answered CreateCall opens a stream with Start OUTBOUND and the metadata", async function () {
       const callRef = ref("out");
-      const sub = events(callRef);
+      const sub = await events(callRef);
       await node.callee("answer", callRef);
       const call = await outbound(callRef, { app_ref: "app-1" });
       assert.equal(call.callRef, callRef);
@@ -147,7 +153,7 @@ export function describeContract(makeTarget: () => Promise<ContractTarget>, nats
 
     it("[CON-006] a busy callee ends the call with busy and 486, and no stream opens", async function () {
       const callRef = ref("busy");
-      const sub = events(callRef);
+      const sub = await events(callRef);
       await node.callee("busy", callRef);
       await outbound(callRef);
       const ended = await next(sub, (ev) => ev.type === "call.ended");
@@ -220,7 +226,7 @@ export function describeContract(makeTarget: () => Promise<ContractTarget>, nats
     it("[CON-013] a draining node publishes node.down", async function () {
       const n = await target.startNode({ sessionEndpoint: app.address });
       try {
-        const sub = nc.subscribe(`roomr.nodes.${n.nodeRef}.heartbeat`);
+        const sub = await subscribe(`roomr.nodes.${n.nodeRef}.heartbeat`);
         await next(nc.subscribe(`roomr.nodes.${n.nodeRef}.heartbeat`), (ev) => ev.type === "node.heartbeat");
         await n.down();
         await next(sub, (ev) => ev.type === "node.down");

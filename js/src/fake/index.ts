@@ -302,6 +302,11 @@ export class FakeCall {
     return this.fake.request("GET", this.path(since ? `?since=${since}` : ""));
   }
 
+  /** What the app sent on the call's control stream, in order (type: answer, hold, sendDtmf, ...). */
+  async commands(): Promise<Array<{ at: number; callRef: string; command: { type: string; [k: string]: unknown } }>> {
+    return (await this.fake.request<{ commands: never[] }>("GET", this.path("/commands"))).commands;
+  }
+
   /** Answers a callee ringing in mode "ring". */
   answer(): Promise<void> {
     return this.fake.request("POST", this.path("/answer"));

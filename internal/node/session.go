@@ -41,6 +41,8 @@ type appStream struct {
 	gone     chan struct{}
 	err      error
 	recvDone chan struct{}
+	// observe, when set, sees each app message as it arrives (Config.OnAppMessage).
+	observe func(*sessionv1.AppMessage)
 }
 
 var errSessionUnreachable = errors.New("session endpoint unreachable")
@@ -92,6 +94,9 @@ func (s *appStream) receive(done <-chan struct{}) {
 			s.err = err
 			close(s.gone)
 			return
+		}
+		if s.observe != nil {
+			s.observe(m)
 		}
 		select {
 		case s.msgs <- m:

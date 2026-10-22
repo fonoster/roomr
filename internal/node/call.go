@@ -366,6 +366,10 @@ func (c *call) openStream() error {
 	c.sess = s
 	roomRef := c.roomRef
 	c.mu.Unlock()
+	if f := c.n.cfg.OnAppMessage; f != nil {
+		ref := c.ref
+		s.observe = func(m *sessionv1.AppMessage) { f(ref, m) }
+	}
 	go s.receive(c.done)
 	dir := sessionv1.Start_INBOUND
 	if !c.inbound {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,11 +15,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	sessionv1 "github.com/fonoster/roomr/api/session/v1"
 	"github.com/fonoster/roomr/internal/caller"
 	"github.com/fonoster/roomr/internal/control"
 	"github.com/fonoster/roomr/internal/node"
 	"github.com/fonoster/roomr/internal/sipua"
 	"github.com/nats-io/nats.go"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const (
@@ -63,6 +66,35 @@ type fakeNode struct {
 	mu sync.Mutex
 	// inbound maps the call_ref of each call the phone placed to the phone's call id.
 	inbound map[string]string
+	// commands are the messages the app sent on each call's control stream, by call_ref.
+	commands map[string][]command
+}
+
+// command is one message an app sent: its oneof member as type, and the member's fields.
+type command struct {
+	At      int64          `json:"at"`
+	CallRef string         `json:"callRef"`
+	Command map[string]any `json:"command"`
+}
+
+func (fn *fakeNode) record(callRef string, m *sessionv1.AppMessage) {
+	data, err := protojson.Marshal(m)
+	if err != nil {
+		return
+	}
+	var whole map[string]map[string]any
+	if json.Unmarshal(data, &whole) != nil {
+		return
+	}
+	for kind, body := range whole {
+		cmd := map[string]any{"type": kind}
+		for k, v := range body {
+			cmd[k] = v
+		}
+		fn.mu.Lock()
+		fn.commands[callRef] = append(fn.commands[callRef], command{At: time.Now().UnixMilli(), CallRef: callRef, Command: cmd})
+		fn.mu.Unlock()
+	}
 }
 
 // nodeOptions is POST /nodes. Durations are milliseconds; zero keeps the node's default.
@@ -130,7 +162,8 @@ func (f *fake) startNode(o nodeOptions) (*fakeNode, error) {
 		return nil, fmt.Errorf("phone: %w", err)
 	}
 	phone.KeyHeader(dialRefHeader)
-	fn := &fakeNode{ref: o.NodeRef, phone: phone, faults: newFaults(), inbound: map[string]string{}}
+	fn := &fakeNode{ref: o.NodeRef, phone: phone, faults: newFaults(), inbound: map[string]string{},
+		commands: map[string][]command{}}
 	fn.reported.Store(-1)
 	if o.ReportedRooms != nil {
 		fn.reported.Store(int64(*o.ReportedRooms))
@@ -162,6 +195,7 @@ func (f *fake) startNode(o nodeOptions) (*fakeNode, error) {
 		CallRefHeader: callRefHeader, RoomHeader: roomHeader, Version: version, Region: o.Region,
 		OutboundProxy: "sip:" + phone.Address(), Logger: f.logger,
 		ControlAddr: fn.controlAddr, SIPAddr: net.JoinHostPort(f.advertise, strconv.Itoa(sipPort)),
+		OnAppMessage: fn.record,
 		ReportRooms: func(actual int) int {
 			if v := fn.reported.Load(); v >= 0 {
 				return int(v)

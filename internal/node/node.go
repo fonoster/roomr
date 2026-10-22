@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	sessionv1 "github.com/fonoster/roomr/api/session/v1"
 	"github.com/fonoster/roomr/internal/audio"
 	"github.com/nats-io/nats.go"
 )
@@ -81,6 +82,9 @@ type Config struct {
 	// ReportRooms, when set, is the room count heartbeats report instead of the real one
 	// (roomr-fake only: a node whose heartbeat is stale).
 	ReportRooms func(actual int) int
+	// OnAppMessage, when set, is told every message an app sends on a call's control stream, as
+	// it arrives (roomr-fake only: tests read what the app asked for).
+	OnAppMessage func(callRef string, m *sessionv1.AppMessage)
 }
 
 func (c *Config) defaults() {

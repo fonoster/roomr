@@ -209,6 +209,13 @@ func (f *fake) routes() http.Handler {
 		}
 		writeJSON(w, 200, f.callView(fn, ref, since))
 	}))
+	// What the app sent on the call's control stream, in order: [{at, callRef, command: {type, ...}}].
+	mux.HandleFunc("GET /calls/{call}/commands", withCall(func(fn *fakeNode, ref string, w http.ResponseWriter, _ *http.Request) {
+		fn.mu.Lock()
+		out := append([]command{}, fn.commands[ref]...)
+		fn.mu.Unlock()
+		writeJSON(w, 200, map[string]any{"commands": out})
+	}))
 	mux.HandleFunc("POST /calls/{call}/answer", withCall(func(fn *fakeNode, ref string, w http.ResponseWriter, _ *http.Request) {
 		if !fn.phone.AnswerRinging(ref) {
 			http.Error(w, "no callee rings for that call (callee mode ring)", http.StatusConflict)
