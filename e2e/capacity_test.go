@@ -3,6 +3,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -122,5 +123,43 @@ func TestROM026_RoomCreateRefusesABadCallRef(t *testing.T) {
 	wantStatus(t, err, codes.InvalidArgument, node.CodeBadMessage)
 	if r.node.ActiveRooms() != 0 || len(r.callee.Calls()) != 0 {
 		t.Fatalf("rooms %d, INVITEs %d", r.node.ActiveRooms(), len(r.callee.Calls()))
+	}
+}
+
+// TestROM020_SaturatedCPUBelowRoomLimitStillAccepts: the room limit is the only admission limit, so
+// a node whose CPUs are all busy still accepts CreateRoom, CreateCall and an INVITE below it.
+func TestROM020_SaturatedCPUBelowRoomLimitStillAccepts(t *testing.T) {
+	r := startWith(t, rigOptions{nodeCfg: func(c *node.Config) { c.MaxRooms = 10 }})
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < runtime.NumCPU(); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for x := 0; ; x++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				for j := 0; j < 100000; j++ {
+					x += j
+				}
+			}
+		}()
+	}
+	t.Cleanup(func() { close(stop); wg.Wait() })
+
+	r.createRoom()
+	ref := fmt.Sprintf("busy-%d", time.Now().UnixNano())
+	call, err := r.mc.CreateCall(rpcCtx(t), &roomrv1.CreateCallRequest{CallRef: ref,
+		To: &roomrv1.SipTarget{Uri: "sip:+1555@carrier.invalid", Proxy: r.callee.Address()}})
+	if err != nil || call.CallRef != ref {
+		t.Fatalf("CreateCall on a saturated node = %v %v", call, err)
+	}
+	r.waitEvent(typed("call.answered", "call_ref", ref), 10*time.Second)
+	r.answeredCall() // an inbound INVITE is accepted too
+	if r.node.AtCapacity() {
+		t.Fatalf("node at capacity with %d rooms of 10", r.node.ActiveRooms())
 	}
 }
