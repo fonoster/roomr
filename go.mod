@@ -5,7 +5,7 @@ go 1.26.9
 require (
 	github.com/emiago/sipgo v1.6.0
 	github.com/gotranspile/g722 v0.0.0-20240123003956-384a1bb16a19
-	github.com/nats-io/nats.go v1.48.0
+	github.com/nats-io/nats.go v1.54.0
 	github.com/pion/rtp v1.10.5
 	github.com/pion/srtp/v3 v3.1.3
 	go.opentelemetry.io/otel v1.47.0
@@ -33,9 +33,9 @@ require (
 	github.com/gobwas/ws v1.3.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
-	github.com/icholy/digest v1.1.0
-	github.com/klauspost/compress v1.18.0 // indirect
-	github.com/nats-io/nkeys v0.4.11 // indirect
+	github.com/icholy/digest v1.2.0
+	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
