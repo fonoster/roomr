@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	sessionv1 "github.com/fonoster/fonoster/go/roomr/api/session/v1"
+	sessionv1 "github.com/fonoster/roomr/api/session/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"

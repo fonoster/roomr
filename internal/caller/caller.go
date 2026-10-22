@@ -16,10 +16,10 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
-	"github.com/fonoster/fonoster/go/roomr/internal/dtmf"
-	"github.com/fonoster/fonoster/go/roomr/internal/rtpio"
-	"github.com/fonoster/fonoster/go/roomr/internal/sdp"
+	"github.com/fonoster/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/dtmf"
+	"github.com/fonoster/roomr/internal/rtpio"
+	"github.com/fonoster/roomr/internal/sdp"
 )
 
 const dtmfPayloadType = 101

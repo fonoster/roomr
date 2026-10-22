@@ -18,14 +18,14 @@ import (
 	"testing"
 	"time"
 
-	sessionv1 "github.com/fonoster/fonoster/go/roomr/api/session/v1"
-	"github.com/fonoster/fonoster/go/roomr/internal/caller"
-	"github.com/fonoster/fonoster/go/roomr/internal/sipua"
+	sessionv1 "github.com/fonoster/roomr/api/session/v1"
+	"github.com/fonoster/roomr/internal/caller"
+	"github.com/fonoster/roomr/internal/sipua"
 )
 
 func TestROM034_LiveRoutrLeastSessions(t *testing.T) {
 	if os.Getenv("ROM034_LIVE") != "1" {
-		// Waived (mods/conformance/catalog/waivers.json): Routr 2.15.4's location service reads
+		// Waived: Routr 2.15.4's location service reads
 		// backend.balancingAlgorithm while the request field is algorithm, so it always round-robins
 		// and this test would pass or fail by chance. Set ROM034_LIVE=1 to run it against a fixed Routr.
 		t.Skip("ROM-034 waived: Routr 2.15.4 ignores least-sessions (reads backend.balancingAlgorithm, not algorithm); ROM034_LIVE=1 runs it")

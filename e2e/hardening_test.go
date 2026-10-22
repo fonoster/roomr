@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/caller"
+	"github.com/fonoster/roomr/internal/caller"
 )
 
 // rawRequest sends one SIP request over UDP and returns the status line of the first final

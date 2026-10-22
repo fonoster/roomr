@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/secretref"
+	"github.com/fonoster/roomr/internal/secretref"
 )
 
 // Options are the PEM settings (file paths or secret:// references; empty means unset).

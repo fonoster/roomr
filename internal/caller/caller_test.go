@@ -1,7 +1,7 @@
 package caller
 
 import (
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/audio"
 	"net"
 	"strings"
 	"testing"

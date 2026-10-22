@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
-	"github.com/fonoster/fonoster/go/roomr/internal/sdp"
+	"github.com/fonoster/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/sdp"
 )
 
 // offerFor is the SDP the node's INVITEs carry (CreateCall and transfers) for a codec setting.

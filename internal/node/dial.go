@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	sessionv1 "github.com/fonoster/fonoster/go/roomr/api/session/v1"
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
-	"github.com/fonoster/fonoster/go/roomr/internal/rtpio"
-	"github.com/fonoster/fonoster/go/roomr/internal/sdp"
+	sessionv1 "github.com/fonoster/roomr/api/session/v1"
+	"github.com/fonoster/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/rtpio"
+	"github.com/fonoster/roomr/internal/sdp"
 )
 
 // failCause is a failed dial's ending cause from its final SIP status.

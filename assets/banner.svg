@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="460" viewBox="0 0 1280 460" role="img" aria-labelledby="t d">
+<title id="t">Roomr: the SIP and media edge for voice agents.</title>
+<desc id="d">A caller and a voice agent join one room. Roomr terminates the SIP call, mixes the audio, and streams it to your app over RTP.</desc>
+<defs>
+<clipPath id="r"><rect width="1280" height="460" rx="28"/></clipPath>
+<radialGradient id="glow" cx="0.72" cy="0.5" r="0.55">
+<stop offset="0" stop-color="#39E19E" stop-opacity=".16"/>
+<stop offset="1" stop-color="#39E19E" stop-opacity="0"/>
+</radialGradient>
+<pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+<circle cx="2" cy="2" r="1" fill="#fff" fill-opacity=".07"/>
+</pattern>
+<style>
+.wm { font: 700 92px/1 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; letter-spacing: -3px; fill: #fff }
+.tag { font: 600 30px/1.2 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #fff }
+.sub { font: 400 19px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #8d8d8d }
+.lbl { font: 600 15px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #e8e8e8; text-anchor: middle }
+.lbl2 { font: 500 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #8d8d8d; text-anchor: middle }
+.bar { fill: #39E19E; transform-box: fill-box; transform-origin: center; transform: scaleY(.35) }
+.pkt { fill: #39E19E; opacity: 0 }
+@media (prefers-reduced-motion: no-preference) {
+.bar { animation: bar 1.4s ease-in-out infinite }
+.b1 { animation-delay: -.1s } .b2 { animation-delay: -.5s } .b3 { animation-delay: -.9s } .b4 { animation-delay: -.3s } .b5 { animation-delay: -.7s }
+@keyframes bar { 0%, 100% { transform: scaleY(.3) } 50% { transform: scaleY(1) } }
+.pkt { animation: pkt 2.4s linear infinite }
+.p2 { animation-delay: -.8s } .p3 { animation-delay: -1.6s }
+@keyframes pkt { 0% { opacity: 0 } 10% { opacity: 1 } 90% { opacity: 1 } 100% { opacity: 0 } }
+.ring { animation: ring 3s ease-out infinite; transform-box: fill-box; transform-origin: center }
+.ring2 { animation-delay: -1.5s }
+@keyframes ring { 0% { transform: scale(.8); opacity: .5 } 100% { transform: scale(1.5); opacity: 0 } }
+}
+.ring { fill: none; stroke: #39E19E; stroke-width: 2; opacity: 0 }
+</style>
+</defs>
+<g clip-path="url(#r)">
+<rect width="1280" height="460" fill="#181818"/>
+<rect width="1280" height="460" fill="url(#dots)"/>
+<rect width="1280" height="460" fill="url(#glow)"/>
+</g>
+
+<!-- wordmark -->
+<g transform="translate(72 0)">
+<rect x="0" y="92" width="52" height="52" rx="14" fill="#39E19E"/>
+<g fill="#053204">
+<rect x="14" y="108" width="4" height="20" rx="2"/><rect x="24" y="102" width="4" height="32" rx="2"/><rect x="34" y="108" width="4" height="20" rx="2"/>
+</g>
+<text class="wm" x="0" y="250">Roomr</text>
+<text class="tag" x="0" y="306">The SIP and media edge for voice AI.</text>
+<text class="sub" x="0" y="346">Calls in, audio mixed, streamed to your app.</text>
+<text class="sub" x="0" y="372">One small Go node. Open source.</text>
+</g>
+
+<!-- diagram: caller -> room -> app -->
+<g transform="translate(640 40) scale(.8)">
+<!-- links -->
+<path d="M150 230 H300" stroke="#fff" stroke-opacity=".28" stroke-width="2" stroke-dasharray="5 7"/>
+<path d="M440 230 H590" stroke="#fff" stroke-opacity=".28" stroke-width="2" stroke-dasharray="5 7"/>
+<circle class="pkt p1" r="5" cx="150" cy="230"><animate attributeName="cx" values="150;300" dur="2.4s" repeatCount="indefinite"/></circle>
+<circle class="pkt p2" r="5" cx="150" cy="230"><animate attributeName="cx" values="150;300" dur="2.4s" begin="-.8s" repeatCount="indefinite"/></circle>
+<circle class="pkt p3" r="5" cx="440" cy="230"><animate attributeName="cx" values="440;590" dur="2.4s" begin="-1.2s" repeatCount="indefinite"/></circle>
+<circle class="pkt p1" r="5" cx="440" cy="230"><animate attributeName="cx" values="440;590" dur="2.4s" begin="-2s" repeatCount="indefinite"/></circle>
+
+<!-- caller: phone -->
+<g transform="translate(60 160)">
+<rect x="0" y="0" width="90" height="140" rx="20" fill="#252525" stroke="#fff" stroke-opacity=".25" stroke-width="2"/>
+<rect x="10" y="18" width="70" height="92" rx="10" fill="#121212"/>
+<circle cx="45" cy="64" r="16" fill="none" stroke="#e8e8e8" stroke-width="3"/>
+<path d="M36 70 q9 -20 18 0" fill="none" stroke="#e8e8e8" stroke-width="3" stroke-linecap="round"/>
+<rect x="33" y="122" width="24" height="4" rx="2" fill="#fff" fill-opacity=".3"/>
+</g>
+<text class="lbl" x="105" y="334">Caller</text>
+<text class="lbl2" x="105" y="354">SIP · PSTN</text>
+
+<!-- room: roomr node -->
+<g>
+<circle class="ring" cx="370" cy="230" r="78"/>
+<circle class="ring ring2" cx="370" cy="230" r="78"/>
+<circle cx="370" cy="230" r="78" fill="#181818" stroke="#39E19E" stroke-width="3"/>
+<circle cx="370" cy="230" r="66" fill="#39E19E" fill-opacity=".1"/>
+<g>
+<rect class="bar b1" x="330" y="205" width="8" height="50" rx="4"/>
+<rect class="bar b2" x="346" y="205" width="8" height="50" rx="4"/>
+<rect class="bar b3" x="362" y="205" width="8" height="50" rx="4"/>
+<rect class="bar b4" x="378" y="205" width="8" height="50" rx="4"/>
+<rect class="bar b5" x="394" y="205" width="8" height="50" rx="4"/>
+</g>
+</g>
+<text class="lbl" x="370" y="334">Roomr node</text>
+<text class="lbl2" x="370" y="354">room · mix-minus · 16 kHz</text>
+
+<!-- app: agent -->
+<g transform="translate(590 160)">
+<rect x="0" y="0" width="150" height="140" rx="18" fill="#252525" stroke="#fff" stroke-opacity=".25" stroke-width="2"/>
+<rect x="0" y="0" width="150" height="30" rx="18" fill="#2f2f2f"/>
+<rect x="0" y="16" width="150" height="14" fill="#2f2f2f"/>
+<circle cx="18" cy="15" r="4" fill="#fff" fill-opacity=".3"/><circle cx="32" cy="15" r="4" fill="#fff" fill-opacity=".3"/><circle cx="46" cy="15" r="4" fill="#fff" fill-opacity=".3"/>
+<text x="20" y="68" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#39E19E">Session.Connect</text>
+<text x="20" y="92" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8d8d8d">RTP L16/16000</text>
+<text x="20" y="116" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8d8d8d">your agent</text>
+</g>
+<text class="lbl" x="665" y="334">Your app</text>
+<text class="lbl2" x="665" y="354">gRPC control · RTP audio</text>
+</g>
+</svg>

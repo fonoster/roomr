@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/audio"
 )
 
 func feedAll(d *Detector, frames []audio.Frame) string {

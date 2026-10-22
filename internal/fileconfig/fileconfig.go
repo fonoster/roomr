@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/sipheader"
+	"github.com/fonoster/roomr/internal/sipheader"
 	"gopkg.in/yaml.v3"
 )
 

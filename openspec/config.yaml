@@ -1,0 +1,22 @@
+schema: spec-driven
+
+context: |
+  # Project: Roomr
+
+  Roomr is the SIP and media edge for voice agents (MIT, Go). One small node terminates SIP calls,
+  puts the legs of a call in rooms that mix audio (mix-minus, 16 kHz linear), and streams each
+  call's audio to an app over RTP, with a per-call gRPC control stream.
+
+  ## Contract (the two protos in api/)
+  - `roomr.v1.Roomr`: how a controller drives a node (CreateCall, EndCall, CreateRoom, EndRoom,
+    AddParticipant, RemoveParticipant).
+  - `session.v1.Session`: the per-call stream a node opens to the app (Start first, then commands
+    and events). Messages only grow: add fields, never renumber or reuse them.
+  - NATS carries heartbeats and events only, best effort.
+
+  ## Rules
+  - The node knows no other component by name: proxy, registrars, session endpoint and header
+    names come from configuration or requests.
+  - Specs describe observable behavior of the node and its contract. How a platform (for example
+    Fonoster) uses Roomr is that platform's spec, not this repository's.
+  - Every requirement is proven by a test whose name carries the requirement's case id.

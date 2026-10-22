@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/audio"
 	"github.com/pion/rtp"
 	"github.com/pion/srtp/v3"
 )

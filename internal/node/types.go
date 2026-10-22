@@ -7,7 +7,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/sdp"
+	"github.com/fonoster/roomr/internal/sdp"
 )
 
 // Context is the standard context (aliased to keep signatures short).

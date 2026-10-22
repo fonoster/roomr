@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go build and tests
+    runs-on: ubuntu-latest
+    services:
+      nats:
+        image: nats:2.11.8
+        ports:
+          - 4222:4222
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # The Opus codec is cgo (internal/audio/opus.go); the image links libopus statically
+      # (Dockerfile). Tests run with cgo (the race detector needs it), so Opus is in.
+      - name: Install libopus
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libopus-dev
+
+      # The live-Routr test registers two nodes behind a real Routr (e2e/testdata/routr).
+      - name: Start a throwaway Routr
+        run: docker compose -f e2e/testdata/routr/compose.yaml up -d --wait
+
+      - name: gofmt, vet and tests (race detector, end to end against NATS and Routr)
+        env:
+          CONFORMANCE_NATS_URL: nats://127.0.0.1:4222
+          ROUTR_EDGEPORT: 127.0.0.1:15360
+          ROUTR_NODE_HOST: host.docker.internal
+          GOTOOLCHAIN: local
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          # The no-libopus fallback (opus_none.go) still builds.
+          CGO_ENABLED=0 go build ./...
+          # Packages one at a time: several bind random local ports and collide when run in parallel.
+          mkdir -p reports/junit
+          go run gotest.tools/gotestsum@v1.13.0 --junitfile reports/junit/roomr-go.xml -- -race -p 1 ./...
+
+      - name: JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-roomr-go
+          path: reports/junit/
+          if-no-files-found: ignore
+
+      - name: Routr logs
+        if: failure()
+        run: docker compose -f e2e/testdata/routr/compose.yaml logs --tail 80 || true
+
+  image:
+    name: image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+  specs:
+    name: openspec validates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+      - run: npx -y @fission-ai/openspec@1.14.3 validate --specs
+
+  # The one check branch protection requires.
+  passed:
+    name: CI passed
+    if: always()
+    needs: [go, image, specs]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job succeeded
+        run: |
+          echo '${{ toJSON(needs) }}' | jq -e 'all(.[]; .result == "success")'

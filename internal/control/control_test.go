@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	roomrv1 "github.com/fonoster/fonoster/go/roomr/api/roomr/v1"
-	"github.com/fonoster/fonoster/go/roomr/internal/node"
+	roomrv1 "github.com/fonoster/roomr/api/roomr/v1"
+	"github.com/fonoster/roomr/internal/node"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

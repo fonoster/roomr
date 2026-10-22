@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/fileconfig"
-	"github.com/fonoster/fonoster/go/roomr/internal/node"
-	"github.com/fonoster/fonoster/go/roomr/internal/secretref"
-	"github.com/fonoster/fonoster/go/roomr/internal/sipua"
+	"github.com/fonoster/roomr/internal/fileconfig"
+	"github.com/fonoster/roomr/internal/node"
+	"github.com/fonoster/roomr/internal/secretref"
+	"github.com/fonoster/roomr/internal/sipua"
 	"github.com/nats-io/nats.go"
 )
 

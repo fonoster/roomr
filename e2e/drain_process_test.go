@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/caller"
+	"github.com/fonoster/roomr/internal/caller"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"

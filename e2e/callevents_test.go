@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	roomrv1 "github.com/fonoster/fonoster/go/roomr/api/roomr/v1"
-	"github.com/fonoster/fonoster/go/roomr/internal/node"
+	roomrv1 "github.com/fonoster/roomr/api/roomr/v1"
+	"github.com/fonoster/roomr/internal/node"
 )
 
 // Events keyed by call: a second controller replica, on its own NATS connection, follows a call

@@ -18,15 +18,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
-	"github.com/fonoster/fonoster/go/roomr/internal/control"
-	"github.com/fonoster/fonoster/go/roomr/internal/edgetls"
-	"github.com/fonoster/fonoster/go/roomr/internal/fileconfig"
-	"github.com/fonoster/fonoster/go/roomr/internal/node"
-	"github.com/fonoster/fonoster/go/roomr/internal/rtpio"
-	"github.com/fonoster/fonoster/go/roomr/internal/secretref"
-	"github.com/fonoster/fonoster/go/roomr/internal/sipua"
-	"github.com/fonoster/fonoster/go/roomr/internal/telemetry"
+	"github.com/fonoster/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/control"
+	"github.com/fonoster/roomr/internal/edgetls"
+	"github.com/fonoster/roomr/internal/fileconfig"
+	"github.com/fonoster/roomr/internal/node"
+	"github.com/fonoster/roomr/internal/rtpio"
+	"github.com/fonoster/roomr/internal/secretref"
+	"github.com/fonoster/roomr/internal/sipua"
+	"github.com/fonoster/roomr/internal/telemetry"
 	"github.com/nats-io/nats.go"
 )
 
@@ -268,7 +268,7 @@ func orControlAddr(advertise, fallback string) string {
 }
 
 // natsInboxPrefix is the inbox prefix of a NATS user, `_INBOX_<user>` (the JS services' too:
-// mods/common natsInboxPrefix).
+// the controller's natsInboxPrefix).
 func natsInboxPrefix(user string) string {
 	return "_INBOX_" + user
 }

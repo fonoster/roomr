@@ -6,11 +6,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
-	"github.com/fonoster/fonoster/go/roomr/internal/dtmf"
-	"github.com/fonoster/fonoster/go/roomr/internal/jitter"
-	"github.com/fonoster/fonoster/go/roomr/internal/rtpio"
-	"github.com/fonoster/fonoster/go/roomr/internal/sdp"
+	"github.com/fonoster/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/dtmf"
+	"github.com/fonoster/roomr/internal/jitter"
+	"github.com/fonoster/roomr/internal/rtpio"
+	"github.com/fonoster/roomr/internal/sdp"
 	"github.com/pion/rtp"
 )
 

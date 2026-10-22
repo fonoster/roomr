@@ -1,4 +1,4 @@
-# Pinned to the bundle's Routr (ops/bundle/compose.yaml).
+# Pinned to the Routr that Fonoster ships (fonoster/routr-one 2.15.4).
 name: rb-roomr
 services:
   edgeport:

@@ -5,7 +5,7 @@ package dtmf
 import (
 	"math"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/audio"
 )
 
 var (

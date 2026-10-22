@@ -1792,7 +1792,7 @@ const file_session_v1_session_proto_rawDesc = "" +
 	"sip_status\x18\x01 \x01(\rR\tsipStatus\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason2I\n" +
 	"\aSession\x12>\n" +
-	"\aConnect\x12\x17.session.v1.NodeMessage\x1a\x16.session.v1.AppMessage(\x010\x01B@Z>github.com/fonoster/fonoster/go/roomr/api/session/v1;sessionv1b\x06proto3"
+	"\aConnect\x12\x17.session.v1.NodeMessage\x1a\x16.session.v1.AppMessage(\x010\x01B4Z2github.com/fonoster/roomr/api/session/v1;sessionv1b\x06proto3"
 
 var (
 	file_session_v1_session_proto_rawDescOnce sync.Once

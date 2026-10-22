@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/audio"
 	"github.com/nats-io/nats.go"
 )
 

@@ -21,7 +21,7 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
-	"github.com/fonoster/fonoster/go/roomr/internal/sipheader"
+	"github.com/fonoster/roomr/internal/sipheader"
 )
 
 // SessionsPlaceholder is replaced in registration header templates by the session count.

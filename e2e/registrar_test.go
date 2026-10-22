@@ -16,8 +16,8 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
-	"github.com/fonoster/fonoster/go/roomr/internal/node"
-	"github.com/fonoster/fonoster/go/roomr/internal/sipua"
+	"github.com/fonoster/roomr/internal/node"
+	"github.com/fonoster/roomr/internal/sipua"
 	"github.com/icholy/digest"
 )
 

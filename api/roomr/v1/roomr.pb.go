@@ -1101,7 +1101,7 @@ const file_roomr_v1_roomr_proto_rawDesc = "" +
 	"CreateRoom\x12\x1b.roomr.v1.CreateRoomRequest\x1a\x0e.roomr.v1.Room\x124\n" +
 	"\aEndRoom\x12\x18.roomr.v1.EndRoomRequest\x1a\x0f.roomr.v1.Empty\x12H\n" +
 	"\x0eAddParticipant\x12\x1f.roomr.v1.AddParticipantRequest\x1a\x15.roomr.v1.Participant\x12H\n" +
-	"\x11RemoveParticipant\x12\".roomr.v1.RemoveParticipantRequest\x1a\x0f.roomr.v1.EmptyB<Z:github.com/fonoster/fonoster/go/roomr/api/roomr/v1;roomrv1b\x06proto3"
+	"\x11RemoveParticipant\x12\".roomr.v1.RemoveParticipantRequest\x1a\x0f.roomr.v1.EmptyB0Z.github.com/fonoster/roomr/api/roomr/v1;roomrv1b\x06proto3"
 
 var (
 	file_roomr_v1_roomr_proto_rawDescOnce sync.Once

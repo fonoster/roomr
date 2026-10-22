@@ -24,7 +24,7 @@ import (
 // CallRefKey is the attribute every call-scoped span, log record and metric carries.
 const CallRefKey = "fonoster.call_ref"
 
-const scope = "github.com/fonoster/fonoster/go/roomr"
+const scope = "github.com/fonoster/roomr"
 
 // Enabled reports whether an OTLP endpoint is configured (and OTEL_SDK_DISABLED is not true).
 func Enabled() bool {

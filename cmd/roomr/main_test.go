@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/fileconfig"
+	"github.com/fonoster/roomr/internal/fileconfig"
 	"github.com/nats-io/nats.go"
 )
 
@@ -21,7 +21,7 @@ func TestShippedConfigsParse(t *testing.T) {
 		"NATS_ROOMR_PASSWORD": "n", "SUBNET_PREFIX": "10.0.0", "SIP_PORT": "5060",
 	}
 	lookup := func(k string) (string, bool) { v, ok := env[k]; return v, ok }
-	for _, file := range []string{"../../../../ops/rebuild/cell/config/roomr.yaml", "../../../../ops/bundle/config/roomr.example.yaml"} {
+	for _, file := range []string{"../../examples/roomr.cell.yaml", "../../examples/roomr.compose.yaml"} {
 		data, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)

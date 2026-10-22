@@ -1,4 +1,4 @@
-module github.com/fonoster/fonoster/go/roomr
+module github.com/fonoster/roomr
 
 go 1.26.9
 

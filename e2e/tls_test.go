@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fonoster/fonoster/go/roomr/internal/caller"
-	"github.com/fonoster/fonoster/go/roomr/internal/edgetls"
-	"github.com/fonoster/fonoster/go/roomr/internal/sipua"
+	"github.com/fonoster/roomr/internal/caller"
+	"github.com/fonoster/roomr/internal/edgetls"
+	"github.com/fonoster/roomr/internal/sipua"
 )
 
 // testPKI is a throwaway CA with leaf certificates for the node and the edge (add-platform 4.2).

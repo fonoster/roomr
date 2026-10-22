@@ -19,8 +19,8 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
-	"github.com/fonoster/fonoster/go/roomr/internal/node"
-	"github.com/fonoster/fonoster/go/roomr/internal/sdp"
+	"github.com/fonoster/roomr/internal/node"
+	"github.com/fonoster/roomr/internal/sdp"
 )
 
 // Config is the SIP side's configuration.

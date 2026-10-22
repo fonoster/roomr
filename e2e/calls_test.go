@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	roomrv1 "github.com/fonoster/fonoster/go/roomr/api/roomr/v1"
-	sessionv1 "github.com/fonoster/fonoster/go/roomr/api/session/v1"
-	"github.com/fonoster/fonoster/go/roomr/internal/audio"
-	"github.com/fonoster/fonoster/go/roomr/internal/caller"
-	"github.com/fonoster/fonoster/go/roomr/internal/node"
-	"github.com/fonoster/fonoster/go/roomr/internal/rtpio"
+	roomrv1 "github.com/fonoster/roomr/api/roomr/v1"
+	sessionv1 "github.com/fonoster/roomr/api/session/v1"
+	"github.com/fonoster/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/caller"
+	"github.com/fonoster/roomr/internal/node"
+	"github.com/fonoster/roomr/internal/rtpio"
 	"github.com/nats-io/nats.go"
 )
 
