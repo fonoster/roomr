@@ -1,4 +1,4 @@
-<a href="https://github.com/fonoster/roomr"><img src="./assets/banner.png" alt="Roomr: real-time audio streams for voice AI. Calls become rooms, and rooms become streams your app can read and write." width="100%"></a>
+<a href="https://github.com/fonoster/roomr"><img src="./assets/banner.svg" alt="Roomr: real-time audio streams for voice AI. Calls become rooms, and rooms become streams your app can read and write." width="100%"></a>
 
 [![CI](https://github.com/fonoster/roomr/actions/workflows/ci.yaml/badge.svg)](https://github.com/fonoster/roomr/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/fonoster/roomr?color=%2347b96d)](https://github.com/fonoster/roomr/releases) [![Docker](https://img.shields.io/docker/v/fonoster/roomr?label=docker&color=%2347b96d)](https://hub.docker.com/r/fonoster/roomr) [![Discord](https://img.shields.io/discord/1016419835455996076?color=5865F2&label=Discord&logo=discord&logoColor=white)](https://discord.gg/4QWgSz4hTC) ![License](https://img.shields.io/github/license/fonoster/roomr?color=%2347b96d)
 

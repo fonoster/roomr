@@ -18854,7 +18854,7 @@
     },
     "font-mono": {
       "type": "string",
-      "value": "JetBrains Mono"
+      "value": "Roboto Mono"
     }
   },
   "fileToken": "059d2463-d559-4701-8ad4-4ae06d1f7874"
