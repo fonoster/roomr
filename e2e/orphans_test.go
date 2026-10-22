@@ -59,6 +59,54 @@ func TestROM035_DialingRoomIsNotEmpty(t *testing.T) {
 	}
 }
 
+// The last participant leaves: the room is only empty from then on, and ends after the timeout.
+func TestROM035_EmptiedRoomEnds(t *testing.T) {
+	const timeout = 600 * time.Millisecond
+	r := startWith(t, rigOptions{nodeCfg: func(c *node.Config) {
+		c.MaxRooms = 1
+		c.EmptyRoomTimeout = timeout
+	}})
+	ref := fmt.Sprintf("emptied-%d", time.Now().UnixNano())
+	events := replica(t, node.RoomEventsSubject(ref))
+	if _, err := r.mc.CreateRoom(rpcCtx(t), &roomrv1.CreateRoomRequest{RoomRef: ref}); err != nil {
+		t.Fatal(err)
+	}
+	_, p, err := r.join(ref, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Present for well over the timeout: not empty, so not ended.
+	time.Sleep(2 * timeout)
+	if n := r.count(typed("room.ended", "room_ref", ref)); n != 0 || r.node.ActiveRooms() != 1 {
+		t.Fatalf("a room with a participant ended (room.ended %d, rooms %d)", n, r.node.ActiveRooms())
+	}
+	if _, err := r.mc.RemoveParticipant(rpcCtx(t), &roomrv1.RemoveParticipantRequest{RoomRef: ref, ParticipantRef: p.ParticipantRef}); err != nil {
+		t.Fatal(err)
+	}
+	left := time.Now()
+	for _, want := range []string{"participant.joined", "participant.left", "room.ended"} {
+		select {
+		case ev := <-events:
+			if ev["type"] != want {
+				t.Fatalf("room event %v, want %s", ev, want)
+			}
+			if want == "room.ended" && ev["cause"] != node.ReasonNodeError {
+				t.Fatalf("room event %v", ev)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("no %s", want)
+		}
+	}
+	if d := time.Since(left); d < timeout/2 {
+		t.Fatalf("room ended %v after the last participant left, timeout %v", d, timeout)
+	}
+	deadline := time.Now().Add(time.Second)
+	for r.node.ActiveRooms() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	r.createRoom() // the slot is free
+}
+
 // A failed dial into an otherwise empty room ends the room at once (busy), not after a timeout.
 func TestROM035_FailedDialEndsEmptyRoom(t *testing.T) {
 	r := start(t)
