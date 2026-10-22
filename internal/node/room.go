@@ -162,6 +162,10 @@ type Room struct {
 	// was created, or last became empty with no dial in progress.
 	dialing   int
 	idleSince time.Time
+	// leaving counts participants taken out but not yet reported as left; a room that ends
+	// meanwhile holds room.ended (endEv) until the last of them is reported.
+	leaving int
+	endEv   Event
 
 	// evMu orders the room's events; seq is their per-room sequence.
 	evMu sync.Mutex
@@ -343,6 +347,10 @@ func (n *Node) answerSDP(c *Participant) []byte {
 func (r *Room) take(ref string) *Participant {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.takeLocked(ref)
+}
+
+func (r *Room) takeLocked(ref string) *Participant {
 	p := r.participants[ref]
 	if p == nil {
 		return nil
@@ -363,12 +371,29 @@ func (r *Room) take(ref string) *Participant {
 
 // remove takes a participant out with cause: a SIP leg gets a BYE unless its side hung up, the
 // RTP endpoint closes and participant.left is reported. A call's leg leaving may end its call.
+// participant.left goes out before room.ended even when the room ends while it is retired
+// (media-control "Room events have their own sequence").
 func (r *Room) remove(ref, cause string) bool {
-	p := r.take(ref)
+	r.mu.Lock()
+	p := r.takeLocked(ref)
+	if p != nil {
+		r.leaving++
+	}
+	r.mu.Unlock()
 	if p == nil {
 		return false
 	}
 	r.retire(p, cause)
+	r.mu.Lock()
+	r.leaving--
+	var ev Event
+	if r.leaving == 0 {
+		ev, r.endEv = r.endEv, nil
+	}
+	r.mu.Unlock()
+	if ev != nil {
+		r.event("room.ended", ev)
+	}
 	return true
 }
 
@@ -441,7 +466,16 @@ func (r *Room) end(cause string, status int) {
 	if status != 0 {
 		ev["sip_status"] = status
 	}
-	r.event("room.ended", ev)
+	r.mu.Lock()
+	if r.leaving > 0 {
+		// A participant taken out before the room ended is still being retired: its
+		// participant.left comes first, and the last of them sends room.ended.
+		r.endEv, ev = ev, nil
+	}
+	r.mu.Unlock()
+	if ev != nil {
+		r.event("room.ended", ev)
+	}
 }
 
 // setHold cuts a participant off from the others and loops hold audio (or silence) to it; Resume
