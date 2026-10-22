@@ -97,5 +97,6 @@ describeContract(() => fakeTarget());
 ```
 
 Cases `CON-001` and up cover heartbeats, room refs and limits, outbound and inbound calls, keys,
-audio, hangups, EndCall, Reject and draining. `realTarget()` runs the `roomr` and `sipcaller`
+audio, hangups, EndCall, Reject, draining, the order of room events, and ringing before the 503 a
+caller gets when the session endpoint is unreachable. `realTarget()` runs the `roomr` and `sipcaller`
 binaries from `$ROOMR_BIN_DIR`.
