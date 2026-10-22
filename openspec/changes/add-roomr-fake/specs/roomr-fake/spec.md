@@ -36,6 +36,10 @@ cause and SIP status. Case id FAK-002.
 - **WHEN** the app answers an inbound call
 - **THEN** the call's commands list `answer` first
 
+#### Scenario: One call_ref on two nodes
+- **WHEN** two of the fake's nodes each hold a call with call_ref `same`
+- **THEN** `GET /calls/same?node=<ref>` reports the named node's call
+
 #### Scenario: A ringing callee answers on demand
 - **WHEN** the callee for call_ref `c1` is `ring` and a controller sends CreateCall `c1`
 - **THEN** the call stays ringing until `POST /calls/c1/answer`, then the session endpoint receives Start with direction OUTBOUND
@@ -50,11 +54,16 @@ The control API SHALL make the next N calls to a Roomr gRPC method fail with a g
 code, or stall for a given time before being served; SHALL list the Roomr requests each node received; SHALL make a node report a different room
 count in its heartbeats; SHALL stop a node gracefully (`node.down`, then its rooms end) or kill it
 (no `node.down`, heartbeats and gRPC stop at once, its calls' control streams drop without Ended);
-and SHALL crash the whole process. Case id FAK-003.
+SHALL stop the node's RTP to a call's app leg while the call goes on; and SHALL crash the whole
+process. Case id FAK-003.
 
 #### Scenario: The next CreateCall fails
 - **WHEN** a test asks for CreateCall to fail once with UNAVAILABLE
 - **THEN** the next CreateCall fails with UNAVAILABLE and the one after it succeeds
+
+#### Scenario: The node's RTP to the app stops
+- **WHEN** a test stops the app media of an answered call
+- **THEN** the app receives no more RTP on that call and the call stays answered
 
 #### Scenario: A killed node goes silent
 - **WHEN** a test kills a node

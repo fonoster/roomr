@@ -3,7 +3,8 @@
 `roomr-fake` is for the tests of platforms that drive Roomr: controllers that call Roomr gRPC and
 apps that serve the session endpoint. It hosts any number of **real** Roomr nodes in one process.
 Each node has its own Roomr gRPC address, heartbeats and events on NATS, and a phone: a SIP caller
-bot on loopback that calls the node and answers what the node dials. Your tests script the phone,
+bot on loopback that calls the node and answers everything the node dials, whatever proxy a
+request names. Your tests script the phone,
 inject faults and kill nodes over a small HTTP+JSON API.
 
 Because the nodes are the real node, the fake behaves exactly like Roomr on the wire. A contract
@@ -71,7 +72,8 @@ Nodes:
 | `POST /reset` | Stop every node |
 | `POST /crash` | Exit the process at once |
 
-Calls, by call_ref:
+Calls, by call_ref (each node keeps its call_refs unique; add `?node=<nodeRef>` when two of the
+fake's nodes hold calls with one ref):
 
 | | |
 | --- | --- |
@@ -80,6 +82,7 @@ Calls, by call_ref:
 | `POST /calls/{call}/answer` | Answer a callee ringing in mode `ring` |
 | `POST /calls/{call}/end` | The node ends the call: `{"cause": "node_error", "sipStatus": 503}` |
 | `POST /calls/{call}/hangup` | The phone hangs up |
+| `POST /calls/{call}/app-media` | `{"stopped": true}`: the node stops its RTP to the call's app leg while the call goes on (`false` resumes) |
 | `POST /calls/{call}/audio` | The phone speaks: `{"kind": "tone\|tone:<hz>\|silence", "ms": 800}` or `{"kind": "pcm", "pcm": "<base64 16 kHz s16le>"}` |
 | `POST /calls/{call}/dtmf` | `{"digits": "12#", "mode": "rfc4733\|info\|inband"}` |
 | `POST /calls/{call}/mute` | `{"muted": true}`: the phone stops sending RTP, so the call ends with `media_timeout` |

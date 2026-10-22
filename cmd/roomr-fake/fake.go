@@ -220,7 +220,7 @@ func (f *fake) startNode(o nodeOptions) (*fakeNode, error) {
 		return nil, fmt.Errorf("sip: %w", err)
 	}
 	fn.ua = ua
-	fn.n.SetDialer(refDialer{ua})
+	fn.n.SetDialer(refDialer{inner: ua, phone: "sip:" + phone.Address()})
 	ctx, cancel := context.WithCancel(context.Background())
 	fn.cancel = cancel
 	go func() { _ = ua.Serve(ctx) }()
@@ -368,11 +368,16 @@ func (fn *fakeNode) phoneCall(callRef string) (*caller.Call, string) {
 	return nil, "outbound"
 }
 
-// refDialer tags the node's outbound INVITEs with their call_ref (dialRefHeader).
-type refDialer struct{ inner node.TargetDialer }
+// refDialer sends every outbound INVITE to the node's phone, whatever proxy the request names
+// (the phone stands in for every carrier and peer), tagged with its call_ref (dialRefHeader).
+type refDialer struct {
+	inner node.TargetDialer
+	phone string
+}
 
 func (d refDialer) DialTarget(ctx context.Context, t node.SipTarget, from string, offer []byte,
 	onProgress func(status int)) (node.OutLeg, []byte, error) {
+	t.Proxy = d.phone
 	if ref := node.CallRefOf(ctx); ref != "" {
 		headers := make(map[string]string, len(t.Headers)+1)
 		for k, v := range t.Headers {

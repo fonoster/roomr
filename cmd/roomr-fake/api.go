@@ -186,11 +186,19 @@ func (f *fake) routes() http.Handler {
 		writeJSON(w, http.StatusCreated, f.callView(fn, ref, time.Time{}))
 	}))
 
-	// Calls, by call_ref, on whichever node holds them.
+	// Calls, by call_ref, on whichever node holds them; ?node=<ref> picks the node when several
+	// hold calls with one ref (each node keeps its call_refs unique, the fake's nodes together
+	// may not).
 	withCall := func(h func(fn *fakeNode, ref string, w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			ref := r.PathValue("call")
 			fn := f.nodeOf(ref)
+			if want := r.URL.Query().Get("node"); want != "" {
+				fn = f.node(want)
+				if fn != nil && !fn.holds(ref) {
+					fn = nil
+				}
+			}
 			if fn == nil {
 				http.Error(w, "no such call", http.StatusNotFound)
 				return
@@ -247,6 +255,18 @@ func (f *fake) routes() http.Handler {
 		}
 		w.WriteHeader(204)
 	}))
+	// {"stopped": true}: the node stops its RTP to the call's app leg (the call goes on).
+	mux.HandleFunc("POST /calls/{call}/app-media", withCall(func(fn *fakeNode, ref string, w http.ResponseWriter, r *http.Request) {
+		req := struct{ Stopped *bool }{}
+		if !decode(w, r, &req) {
+			return
+		}
+		if err := fn.n.StopAppMedia(ref, req.Stopped == nil || *req.Stopped); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		w.WriteHeader(204)
+	}))
 	mux.HandleFunc("POST /calls/{call}/hangup", withPhone(func(c *caller.Call, w http.ResponseWriter, _ *http.Request) {
 		_ = c.Hangup()
 		w.WriteHeader(204)
@@ -292,6 +312,18 @@ func (f *fake) routes() http.Handler {
 		_, _ = w.Write(c.Heard())
 	}))
 	return mux
+}
+
+// holds reports whether the node placed or knows the call.
+func (fn *fakeNode) holds(ref string) bool {
+	fn.mu.Lock()
+	_, ok := fn.inbound[ref]
+	fn.mu.Unlock()
+	if ok {
+		return true
+	}
+	_, err := fn.n.GetCall(ref)
+	return err == nil
 }
 
 // nodeOf is the node that holds a call: the one whose phone placed it, else the one that knows it.

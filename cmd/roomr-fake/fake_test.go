@@ -13,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ type app struct {
 	addr string
 	mu   sync.Mutex
 	msgs map[string][]*sessionv1.NodeMessage // by call_ref
+	rtp  map[string]*atomic.Int64            // RTP packets received, by call_ref
 }
 
 func startApp(t *testing.T) *app {
@@ -39,7 +41,7 @@ func startApp(t *testing.T) *app {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{addr: l.Addr().String(), msgs: map[string][]*sessionv1.NodeMessage{}}
+	a := &app{addr: l.Addr().String(), msgs: map[string][]*sessionv1.NodeMessage{}, rtp: map[string]*atomic.Int64{}}
 	s := grpc.NewServer()
 	sessionv1.RegisterSessionServer(s, a)
 	go func() { _ = s.Serve(l) }()
@@ -62,6 +64,19 @@ func (a *app) Connect(stream sessionv1.Session_ConnectServer) error {
 		}
 		if s := m.GetStart(); s != nil {
 			ref = s.CallRef
+			count := &atomic.Int64{}
+			a.mu.Lock()
+			a.rtp[ref] = count
+			a.mu.Unlock()
+			go func() {
+				buf := make([]byte, 2048)
+				for {
+					if _, _, err := rtp.ReadFrom(buf); err != nil {
+						return
+					}
+					count.Add(1)
+				}
+			}()
 			reply := &sessionv1.AppMessage{Msg: &sessionv1.AppMessage_Ready{Ready: &sessionv1.Ready{Media: media}}}
 			if s.Direction == sessionv1.Start_INBOUND {
 				reply = &sessionv1.AppMessage{Msg: &sessionv1.AppMessage_Answer{Answer: &sessionv1.Answer{Media: media}}}
@@ -75,6 +90,16 @@ func (a *app) Connect(stream sessionv1.Session_ConnectServer) error {
 }
 
 // await returns the first message of a call that ok accepts.
+// packets is how many RTP packets the app received on a call so far.
+func (a *app) packets(ref string) int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if c := a.rtp[ref]; c != nil {
+		return c.Load()
+	}
+	return 0
+}
+
 func (a *app) await(t *testing.T, ref string, ok func(*sessionv1.NodeMessage) bool) *sessionv1.NodeMessage {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -239,10 +264,25 @@ func TestFAK002_ThePhoneCallsAndAnswersLikeAPhone(t *testing.T) {
 		}
 	})
 
+	t.Run("a call_ref is looked up on the node named", func(t *testing.T) {
+		other := r.node(map[string]any{"sessionEndpoint": a.addr})
+		for _, nodeRef := range []string{n.NodeRef, other.NodeRef} {
+			if code := r.call("POST", "/nodes/"+nodeRef+"/calls", map[string]any{"callRef": "same"}, nil); code != 201 {
+				t.Fatalf("POST calls on %s: %d", nodeRef, code)
+			}
+		}
+		waitFor(t, func() bool {
+			var v callView
+			r.call("GET", "/calls/same?node="+other.NodeRef, nil, &v)
+			return v.NodeRef == other.NodeRef && v.State == "answered"
+		})
+	})
+
 	t.Run("a ringing callee answers on demand", func(t *testing.T) {
 		r.call("POST", "/nodes/"+n.NodeRef+"/callee", map[string]any{"mode": "ring", "callRef": "c1"}, nil)
+		// A proxy the fake cannot reach: the phone answers anyway.
 		_, err := client(t, n.ControlAddr).CreateCall(ctx(t), &roomrv1.CreateCallRequest{CallRef: "c1",
-			To: &roomrv1.SipTarget{Uri: "sip:+15551230000@carrier"}})
+			To: &roomrv1.SipTarget{Uri: "sip:+15551230000@carrier", Proxy: "sip:192.0.2.1:5060"}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -314,6 +354,25 @@ func TestFAK003_ScriptedFaults(t *testing.T) {
 		r.call("PATCH", "/nodes/"+n.NodeRef, map[string]any{"reportedRooms": 0}, nil)
 		if hb := r.heartbeat(n.NodeRef, 2*time.Second); hb == nil || hb["rooms"] != float64(0) {
 			t.Fatalf("heartbeat: %v", hb)
+		}
+	})
+
+	t.Run("the node's RTP to the app stops on demand", func(t *testing.T) {
+		var v callView
+		r.call("POST", "/nodes/"+n.NodeRef+"/calls", map[string]any{"callRef": "quiet"}, &v)
+		waitFor(t, func() bool { return a.packets("quiet") > 5 })
+		if code := r.call("POST", "/calls/quiet/app-media", map[string]any{"stopped": true}, nil); code != 204 {
+			t.Fatalf("app-media: %d", code)
+		}
+		time.Sleep(100 * time.Millisecond)
+		before := a.packets("quiet")
+		time.Sleep(300 * time.Millisecond)
+		if got := a.packets("quiet"); got != before {
+			t.Fatalf("the app still got %d packets", got-before)
+		}
+		r.call("GET", "/calls/quiet", nil, &v)
+		if v.State != "answered" {
+			t.Fatalf("the call did not go on: %q", v.State)
 		}
 	})
 
