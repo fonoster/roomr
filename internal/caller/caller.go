@@ -43,6 +43,8 @@ type Bot struct {
 	mu         sync.Mutex
 	calls      map[string]*Call
 	seq        int
+	// dialing maps the Call-ID of each INVITE the bot sent to its call, for onResponse.
+	dialing map[string]*Call
 	// How the bot answers INVITEs it receives (as the callee of a dial or transfer).
 	answerMode  string // answer (default), busy, no_answer, unavailable, decline, ring
 	answerAfter time.Duration
@@ -276,7 +278,13 @@ func NewWithOptions(o Options) (*Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := &Bot{host: host, sipHost: sipHost, ua: ua, srv: srv, client: client, port: port, calls: map[string]*Call{}}
+	b := &Bot{host: host, sipHost: sipHost, ua: ua, srv: srv, client: client, port: port, calls: map[string]*Call{},
+		dialing: map[string]*Call{}}
+	// Statuses are recorded from the transport, in the order they arrive: sipgo hands each
+	// response to its transaction on its own goroutine, so a 180 and a 503 that arrive together
+	// can reach the transaction reversed, and an INVITE transaction that is already completed
+	// drops the 1xx (media-control "Ringing before answer": suites assert [180 503]).
+	ua.TransportLayer().OnMessage(b.onResponse)
 	b.dialogs = sipgo.NewDialogClientCache(client, sip.ContactHeader{Address: sip.Uri{User: "caller", Host: sipHost, Port: port}})
 	contact := sip.ContactHeader{Address: sip.Uri{User: "callee", Host: sipHost, Port: port}}
 	b.inbound = sipgo.NewDialogServerCache(client, contact)
@@ -445,30 +453,71 @@ func (b *Bot) DialWith(target, to, from string, headers map[string]string, o Dia
 	for _, h := range hdrs {
 		req.AppendHeader(h)
 	}
+	callID := sip.CallIDHeader(sip.GenerateTagN(16) + "@" + b.sipHost)
+	req.AppendHeader(&callID)
 	req.SetDestination(target)
+	// Registered before the INVITE goes out: its first response can arrive before WriteInvite
+	// returns.
+	c := &Call{bot: b, endpoint: ep, state: "calling", cancel: cancel, stop: make(chan struct{}), opts: o}
+	b.mu.Lock()
+	b.dialing[string(callID)] = c
+	b.mu.Unlock()
 	session, err := b.dialogs.WriteInvite(ctx, req)
 	if err != nil {
+		b.mu.Lock()
+		delete(b.dialing, string(callID))
+		b.mu.Unlock()
 		cancel()
 		ep.Close()
 		return nil, err
 	}
 	b.mu.Lock()
 	b.seq++
-	c := &Call{ID: fmt.Sprintf("call-%d", b.seq), bot: b, session: session, endpoint: ep, state: "calling",
-		cancel: cancel, stop: make(chan struct{}), opts: o}
+	c.ID, c.session = fmt.Sprintf("call-%d", b.seq), session
 	b.calls[c.ID] = c
 	b.mu.Unlock()
 	go c.await(ctx, key)
 	return c, nil
 }
 
+// onResponse records a response to one of the bot's INVITEs, on the transport's read loop (so in
+// arrival order); a retransmission of the status it last recorded is not recorded again.
+func (b *Bot) onResponse(m sip.Message) {
+	res, ok := m.(*sip.Response)
+	if !ok {
+		return
+	}
+	cseq, id := res.CSeq(), res.CallID()
+	if cseq == nil || cseq.MethodName != sip.INVITE || id == nil {
+		return
+	}
+	b.mu.Lock()
+	c := b.dialing[string(*id)]
+	b.mu.Unlock()
+	if c != nil {
+		c.recordStatus(int(res.StatusCode))
+	}
+}
+
+// recordStatus appends a SIP status unless it repeats the last one.
+func (c *Call) recordStatus(status int) {
+	c.mu.Lock()
+	if n := len(c.statuses); n == 0 || c.statuses[n-1] != status {
+		c.statuses = append(c.statuses, status)
+	}
+	c.mu.Unlock()
+}
+
 func (c *Call) await(ctx context.Context, key string) {
-	err := c.session.WaitAnswer(ctx, sipgo.AnswerOptions{OnResponse: func(res *sip.Response) error {
-		c.mu.Lock()
-		c.statuses = append(c.statuses, int(res.StatusCode))
-		c.mu.Unlock()
-		return nil
-	}})
+	// Statuses come from onResponse; the final is also recorded here in case the transport has
+	// not reported it yet.
+	err := c.session.WaitAnswer(ctx, sipgo.AnswerOptions{})
+	// The INVITE has its final response: later ones (retransmissions) are not recorded.
+	if id := c.session.InviteRequest.CallID(); id != nil {
+		c.bot.mu.Lock()
+		delete(c.bot.dialing, string(*id))
+		c.bot.mu.Unlock()
+	}
 	if err != nil {
 		var final *sipgo.ErrDialogResponse
 		if e, ok := err.(*sipgo.ErrDialogResponse); ok {
@@ -481,20 +530,16 @@ func (c *Call) await(ctx context.Context, key string) {
 			// Our own CANCEL: sipgo waits for the 487 and keeps it as the INVITE's response.
 			status = int(res.StatusCode)
 		}
-		c.mu.Lock()
-		if status != 0 && (len(c.statuses) == 0 || c.statuses[len(c.statuses)-1] != status) {
-			c.statuses = append(c.statuses, status)
+		if status != 0 {
+			c.recordStatus(status)
 		}
+		c.mu.Lock()
 		c.state = "ended"
 		c.mu.Unlock()
 		c.endpoint.Close()
 		return
 	}
-	c.mu.Lock()
-	if n := len(c.statuses); n == 0 || c.statuses[n-1] != 200 {
-		c.statuses = append(c.statuses, 200)
-	}
-	c.mu.Unlock()
+	c.recordStatus(200)
 	answer, err := sdp.Parse(c.session.InviteResponse.Body())
 	if err != nil {
 		_ = c.Hangup()
