@@ -272,6 +272,11 @@ func TestFAK002_ThePhoneCallsAndAnswersLikeAPhone(t *testing.T) {
 		if c := ended.GetEvent().GetEnded().Cause; c != "node_error" {
 			t.Fatalf("Ended cause %q", c)
 		}
+		var v callView
+		r.call("GET", "/calls/c1", nil, &v)
+		if v.State != "ended" || v.Cause != "node_error" {
+			t.Fatalf("call after end: %+v", v)
+		}
 	})
 }
 

@@ -68,6 +68,9 @@ func (t SipTarget) check() error {
 // CallInfo is a Call as Roomr reports it.
 type CallInfo struct {
 	CallRef, RoomRef, ParticipantRef, State string
+	// Cause and SIPStatus: why an ended call ended (not on the wire; roomr-fake reports them).
+	Cause     string
+	SIPStatus int
 }
 
 // CallRequest is CreateCall's input.

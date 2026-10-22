@@ -188,7 +188,7 @@ func (c *call) streamTransferResult(status, cause string, sipStatus int) {
 func (c *call) info() CallInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	info := CallInfo{CallRef: c.ref, RoomRef: c.roomRef, State: c.state}
+	info := CallInfo{CallRef: c.ref, RoomRef: c.roomRef, State: c.state, Cause: c.cause, SIPStatus: c.sipStatus}
 	if c.leg != nil {
 		info.ParticipantRef = c.leg.Ref
 	}

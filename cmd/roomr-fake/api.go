@@ -30,9 +30,12 @@ type callView struct {
 	NodeRef   string `json:"nodeRef"`
 	Direction string `json:"direction"`
 	// State is the node's: ringing, answered or ended ("" once the node forgot the call).
-	State   string `json:"state"`
-	RoomRef string `json:"roomRef,omitempty"`
-	Held    bool   `json:"held"`
+	State string `json:"state"`
+	// Cause and SipStatus: why the call ended, once it has.
+	Cause     string `json:"cause,omitempty"`
+	SipStatus int    `json:"sipStatus,omitempty"`
+	RoomRef   string `json:"roomRef,omitempty"`
+	Held      bool   `json:"held"`
 	// Phone is the caller (inbound) or the callee that answered (outbound).
 	Phone *caller.Status `json:"phone,omitempty"`
 }
@@ -313,7 +316,7 @@ func (f *fake) nodeOf(ref string) *fakeNode {
 func (f *fake) callView(fn *fakeNode, ref string, since time.Time) callView {
 	v := callView{CallRef: ref, NodeRef: fn.ref}
 	if info, err := fn.n.GetCall(ref); err == nil {
-		v.State, v.RoomRef = info.State, info.RoomRef
+		v.State, v.RoomRef, v.Cause, v.SipStatus = info.State, info.RoomRef, info.Cause, info.SIPStatus
 		v.Held = info.RoomRef != "" && fn.n.Held(info.RoomRef)
 	}
 	c, dir := fn.phoneCall(ref)

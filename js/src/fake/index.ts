@@ -67,6 +67,9 @@ export type CallStatus = {
   direction: "inbound" | "outbound";
   /** The node's state ("" once it forgot the call). */
   state: "ringing" | "answered" | "ended" | "";
+  /** Why the call ended, once it has. */
+  cause?: string;
+  sipStatus?: number;
   roomRef?: string;
   held: boolean;
   phone?: PhoneStatus;
