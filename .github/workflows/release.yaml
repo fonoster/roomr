@@ -3,18 +3,48 @@ name: Release
 # Tag vX.Y.Z to release. The tagged commit must pass CI; then the multi-arch images are published to
 # Docker Hub (fonoster/roomr and fonoster/roomr-fake, X.Y.Z and :latest for a stable tag), the npm
 # package @fonoster/roomr is published at X.Y.Z, and a GitHub release is created with generated
-# notes, the protos (platforms vendor them from here) and static roomr-fake binaries.
+# notes, the protos (platforms vendor them from here) and static roomr-fake binaries. The Helm
+# chart is pushed to oci://ghcr.io/fonoster/charts/roomr at X.Y.Z.
+#
+# If GitHub drops the tag's push event, run it by hand on the tag: gh workflow run Release --ref vX.Y.Z
 
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  tag:
+    name: release from a tag only
+    runs-on: ubuntu-latest
+    steps:
+      - run: '[[ "$GITHUB_REF" == refs/tags/v* ]] || { echo "run this on a vX.Y.Z tag, not $GITHUB_REF"; exit 1; }'
+
   ci:
+    needs: tag
     uses: ./.github/workflows/ci.yaml
+
+  chart:
+    name: publish the Helm chart
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Package and push to oci://ghcr.io/fonoster/charts
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          helm package charts/roomr --version "$VERSION" --app-version "$VERSION" -d dist
+          echo "$TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push "dist/roomr-$VERSION.tgz" oci://ghcr.io/fonoster/charts
 
   images:
     name: publish fonoster/${{ matrix.image.name }}

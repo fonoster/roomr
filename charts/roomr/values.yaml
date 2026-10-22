@@ -41,12 +41,19 @@ config:
   # Required: where each call's control stream goes (host:port of your app's Session server).
   sessionEndpoint: ""
 
+# A ConfigMap holding roomr.yaml that another chart renders (a parent that embeds this one); the
+# name may use templates, e.g. "{{ .Release.Name }}-roomr". When set, this chart renders no
+# ConfigMap, `config` sets only the container ports (sip.listen, control.grpc.listen) and the
+# NetworkPolicy's ports, and pods do not restart on their own when that ConfigMap changes.
+existingConfigMap: ""
+
 # On the pod network the node advertises its pod IP as the control address; set this to render
 # control.grpc.advertise as ${POD_IP}:<control port>. Ignored with hostNetwork.
 advertisePodIP: true
 
 # Extra environment for the container (list of EnvVar), for example secrets referenced as
-# ${NAME} in config or as secret://env/NAME.
+# ${NAME} in config or as secret://env/NAME. Rendered as a template: values may use
+# {{ .Release.Name }}.
 env: []
 envFrom: []
 

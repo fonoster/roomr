@@ -19,7 +19,9 @@ spec:
       labels:
         {{- include "roomr.selector" . | nindent 8 }}
       annotations:
+        {{- if not .Values.existingConfigMap }}
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -46,7 +48,7 @@ spec:
               valueFrom: { fieldRef: { fieldPath: status.podIP } }
             {{- end }}
             {{- with .Values.env }}
-            {{- toYaml . | nindent 12 }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
             {{- end }}
           {{- with .Values.envFrom }}
           envFrom:
@@ -88,7 +90,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "roomr.name" . }}
+            name: {{ ternary (tpl .Values.existingConfigMap .) (include "roomr.name" .) (ne .Values.existingConfigMap "") }}
         {{- if .Values.tls.enabled }}
         - name: tls
           secret: { secretName: {{ .Values.tls.secret | quote }} }

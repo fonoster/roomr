@@ -30,7 +30,7 @@ ARG OPUS_VERSION=1.5.2
 ARG OPUS_SHA256=65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1
 RUN set -eux; \
   triple="$(cat /triple)"; cc=gcc; [ "$TARGETARCH" = "$BUILDARCH" ] || cc="$triple-gcc"; \
-  curl -fsSL -o /tmp/opus.tar.gz "https://downloads.xiph.org/releases/opus/opus-$OPUS_VERSION.tar.gz"; \
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/opus.tar.gz "https://downloads.xiph.org/releases/opus/opus-$OPUS_VERSION.tar.gz"; \
   echo "$OPUS_SHA256  /tmp/opus.tar.gz" | sha256sum -c -; \
   mkdir /tmp/opus && tar -xzf /tmp/opus.tar.gz -C /tmp/opus --strip-components=1; \
   cd /tmp/opus; \
