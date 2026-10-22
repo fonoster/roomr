@@ -290,6 +290,11 @@ func TestFAK003_ScriptedFaults(t *testing.T) {
 		if _, err := c.CreateCall(ctx(t), req); err != nil {
 			t.Fatalf("second CreateCall: %v", err)
 		}
+		var got struct{ Requests []rpc }
+		r.call("GET", "/nodes/"+n.NodeRef+"/requests?method=CreateCall", nil, &got)
+		if len(got.Requests) != 2 || got.Requests[0].Request["callRef"] != "f1" {
+			t.Fatalf("recorded requests: %+v", got.Requests)
+		}
 	})
 
 	t.Run("a stalled CreateRoom is served late", func(t *testing.T) {

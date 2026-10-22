@@ -21,8 +21,15 @@ import (
 	"github.com/fonoster/roomr/internal/node"
 	"github.com/fonoster/roomr/internal/sipua"
 	"github.com/nats-io/nats.go"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
 )
+
+// lateNode is the gRPC service's backend: the node, set once it exists (the node's config needs
+// the gRPC address first).
+type lateNode struct{ *node.Node }
+
+func unmarshalJSON(data []byte, v any) error { return json.Unmarshal(data, v) }
 
 const (
 	// callRefHeader carries an inbound call's call_ref, and roomHeader the room it joins: the fake
@@ -171,8 +178,9 @@ func (f *fake) startNode(o nodeOptions) (*fakeNode, error) {
 	if c := o.Callee; c != nil {
 		fn.script(*c)
 	}
-	backend := &faultyBackend{f: fn.faults}
-	ctl, err := control.Listen(net.JoinHostPort(f.host, "0"), backend, nil, f.logger)
+	backend := &lateNode{}
+	ctl, err := control.Listen(net.JoinHostPort(f.host, "0"), backend, nil, f.logger,
+		grpc.UnaryInterceptor(fn.faults.interceptor()))
 	if err != nil {
 		phone.Close()
 		return nil, fmt.Errorf("roomr grpc: %w", err)
@@ -203,7 +211,7 @@ func (f *fake) startNode(o nodeOptions) (*fakeNode, error) {
 			return actual
 		}}
 	fn.n = node.New(f.nc, cfg)
-	backend.n = fn.n
+	backend.Node = fn.n
 	ua, err := sipua.New(fn.n, sipua.Config{Listen: fn.sipAddr, AdvertiseHost: f.host, AdvertisePort: sipPort,
 		OutboundProxy: cfg.OutboundProxy, Logger: f.logger})
 	if err != nil {

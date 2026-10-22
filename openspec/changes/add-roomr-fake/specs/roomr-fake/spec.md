@@ -47,7 +47,7 @@ cause and SIP status. Case id FAK-002.
 ### Requirement: The fake injects faults
 
 The control API SHALL make the next N calls to a Roomr gRPC method fail with a given gRPC status
-code, or stall for a given time before being served; SHALL make a node report a different room
+code, or stall for a given time before being served; SHALL list the Roomr requests each node received; SHALL make a node report a different room
 count in its heartbeats; SHALL stop a node gracefully (`node.down`, then its rooms end) or kill it
 (no `node.down`, heartbeats and gRPC stop at once, its calls' control streams drop without Ended);
 and SHALL crash the whole process. Case id FAK-003.

@@ -63,6 +63,7 @@ Nodes:
 | `POST /nodes/{node}/callee` | `{"mode": "answer\|busy\|no_answer\|unavailable\|decline\|ring", "afterMs": 0, "callRef": "c1"}`: how the phone answers what the node dials, for one call_ref or every call. `ring` rings until `POST /calls/{call}/answer` |
 | `POST /nodes/{node}/faults` | `{"method": "CreateCall", "code": "UNAVAILABLE", "times": 1}` fails the next calls; `{"method": "CreateRoom", "stallMs": 2500}` serves them late |
 | `DELETE /nodes/{node}/faults` | Clears the faults |
+| `GET /nodes/{node}/requests` | The Roomr requests the node received, as proto JSON (`?method=CreateCall` for one method) |
 | `POST /nodes/{node}/calls` | The phone calls the node: `from`, `to`, `callRef` (sent as `X-Call-Ref`, the call's call_ref), `roomRef` (sent as `X-Room-Ref`), `headers`, `codecs` |
 | `POST /nodes/{node}/down` | Drain: `node.down`, health NOT_SERVING, live rooms keep running |
 | `POST /nodes/{node}/kill` | A crash: no `node.down`, heartbeats and gRPC stop at once, streams drop without Ended |

@@ -70,10 +70,6 @@ func toStatus(err error) error {
 	if err == nil {
 		return nil
 	}
-	// Already a gRPC status (a backend that refuses on its own terms, e.g. roomr-fake's faults).
-	if _, ok := status.FromError(err); ok {
-		return err
-	}
 	var ne *node.Error
 	if errors.As(err, &ne) {
 		c, ok := codeFor[ne.Code]
@@ -245,8 +241,8 @@ type Server struct {
 }
 
 // Listen binds addr and prepares the server; tlsConfig nil serves plaintext (mTLS when it
-// requires client certificates).
-func Listen(addr string, b Backend, tlsConfig *tls.Config, log *slog.Logger) (*Server, error) {
+// requires client certificates). extra adds server options (roomr-fake's interceptor).
+func Listen(addr string, b Backend, tlsConfig *tls.Config, log *slog.Logger, extra ...grpc.ServerOption) (*Server, error) {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -261,7 +257,7 @@ func Listen(addr string, b Backend, tlsConfig *tls.Config, log *slog.Logger) (*S
 	if tlsConfig != nil {
 		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
 	}
-	g := grpc.NewServer(opts...)
+	g := grpc.NewServer(append(opts, extra...)...)
 	roomrv1.RegisterRoomrServer(g, NewService(b))
 	h := health.NewServer()
 	healthpb.RegisterHealthServer(g, h)

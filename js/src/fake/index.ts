@@ -261,6 +261,12 @@ export class FakeNode {
     return this.fake.request("POST", this.path("/faults"), { method, stallMs: ms, times });
   }
 
+  /** The Roomr requests the node received (one method, or all), as proto JSON in camelCase. */
+  async requests(method?: RoomrMethod): Promise<Array<{ at: number; method: RoomrMethod; request: Record<string, any> }>> {
+    const q = method ? `?method=${method}` : "";
+    return (await this.fake.request<{ requests: never[] }>("GET", this.path(`/requests${q}`))).requests;
+  }
+
   clearFaults(): Promise<void> {
     return this.fake.request("DELETE", this.path("/faults"));
   }

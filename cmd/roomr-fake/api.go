@@ -148,6 +148,10 @@ func (f *fake) routes() http.Handler {
 		fn.faults.add(req.Method, &fault{code: req.Code, stall: ms(req.StallMs), times: req.Times})
 		w.WriteHeader(204)
 	}))
+	// The Roomr requests the node received: ?method=CreateCall for one method.
+	mux.HandleFunc("GET /nodes/{node}/requests", withNode(func(fn *fakeNode, w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"requests": fn.faults.received(r.URL.Query().Get("method"))})
+	}))
 	mux.HandleFunc("DELETE /nodes/{node}/faults", withNode(func(fn *fakeNode, w http.ResponseWriter, _ *http.Request) {
 		fn.faults.clear()
 		w.WriteHeader(204)

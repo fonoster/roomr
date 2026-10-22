@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
+	"path"
 	"sync"
 	"time"
 
-	"github.com/fonoster/roomr/internal/node"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 // fault is what the next Times calls to a Roomr method do: wait Stall, then fail with Code
@@ -17,10 +21,19 @@ type fault struct {
 	times int
 }
 
-// faults are the scripted failures of one node's Roomr gRPC, by method name (CreateCall, ...).
+// rpc is one Roomr request a node received, as proto JSON (camelCase, defaults included).
+type rpc struct {
+	At      int64          `json:"at"`
+	Method  string         `json:"method"`
+	Request map[string]any `json:"request"`
+}
+
+// faults are one node's scripted gRPC failures, by method name (CreateCall, ...), and the
+// requests it received.
 type faults struct {
-	mu    sync.Mutex
-	rules map[string][]*fault
+	mu       sync.Mutex
+	rules    map[string][]*fault
+	requests []rpc
 }
 
 func newFaults() *faults { return &faults{rules: map[string][]*fault{}} }
@@ -37,78 +50,55 @@ func (f *faults) clear() {
 	f.rules = map[string][]*fault{}
 }
 
-// apply runs the method's next fault, if any: the stall, then the refusal.
-func (f *faults) apply(method string) error {
+// received lists the requests of one method ("": every method), in order.
+func (f *faults) received(method string) []rpc {
 	f.mu.Lock()
-	var ft fault
-	queue := f.rules[method]
-	if len(queue) > 0 {
-		ft = *queue[0]
-		if queue[0].times--; queue[0].times <= 0 {
-			f.rules[method] = queue[1:]
+	defer f.mu.Unlock()
+	out := []rpc{}
+	for _, r := range f.requests {
+		if method == "" || r.Method == method {
+			out = append(out, r)
 		}
 	}
-	f.mu.Unlock()
-	if ft.stall > 0 {
-		time.Sleep(ft.stall)
-	}
-	if ft.code != codes.OK {
-		return status.Error(ft.code, "roomr-fake: scripted "+ft.code.String())
-	}
-	return nil
+	return out
 }
 
-// faultyBackend is the node behind the Roomr gRPC service, with the scripted faults in front.
-type faultyBackend struct {
-	n *node.Node
-	f *faults
-}
+var marshal = protojson.MarshalOptions{EmitUnpopulated: true}
 
-func (b *faultyBackend) CreateCall(req node.CallRequest) (node.CallInfo, error) {
-	if err := b.f.apply("CreateCall"); err != nil {
-		return node.CallInfo{}, err
+// interceptor records every Roomr request, then runs the method's next fault, if any: the stall,
+// then the refusal; health checks pass untouched.
+func (f *faults) interceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
+		method := path.Base(info.FullMethod)
+		if path.Dir(info.FullMethod) != "/roomr.v1.Roomr" {
+			return next(ctx, req)
+		}
+		f.mu.Lock()
+		r := rpc{At: time.Now().UnixMilli(), Method: method, Request: map[string]any{}}
+		if m, ok := req.(proto.Message); ok {
+			if data, err := marshal.Marshal(m); err == nil {
+				_ = unmarshalJSON(data, &r.Request)
+			}
+		}
+		f.requests = append(f.requests, r)
+		var ft fault
+		if queue := f.rules[method]; len(queue) > 0 {
+			ft = *queue[0]
+			if queue[0].times--; queue[0].times <= 0 {
+				f.rules[method] = queue[1:]
+			}
+		}
+		f.mu.Unlock()
+		if ft.stall > 0 {
+			select {
+			case <-time.After(ft.stall):
+			case <-ctx.Done():
+				return nil, status.FromContextError(ctx.Err()).Err()
+			}
+		}
+		if ft.code != codes.OK {
+			return nil, status.Error(ft.code, "roomr-fake: scripted "+ft.code.String())
+		}
+		return next(ctx, req)
 	}
-	return b.n.CreateCall(req)
-}
-
-func (b *faultyBackend) EndCall(ref string) error {
-	if err := b.f.apply("EndCall"); err != nil {
-		return err
-	}
-	return b.n.EndCall(ref)
-}
-
-func (b *faultyBackend) CreateRoom(ref string, o node.RoomOptions) (string, error) {
-	if err := b.f.apply("CreateRoom"); err != nil {
-		return "", err
-	}
-	return b.n.CreateRoom(ref, o)
-}
-
-func (b *faultyBackend) EndRoom(ref string) error {
-	if err := b.f.apply("EndRoom"); err != nil {
-		return err
-	}
-	return b.n.EndRoom(ref)
-}
-
-func (b *faultyBackend) AddRTPParticipant(roomRef string, ep node.MediaEndpoint) (node.ParticipantInfo, error) {
-	if err := b.f.apply("AddParticipant"); err != nil {
-		return node.ParticipantInfo{}, err
-	}
-	return b.n.AddRTPParticipant(roomRef, ep)
-}
-
-func (b *faultyBackend) AddListenerParticipant(roomRef string, tracks []node.ListenTrack) (node.ParticipantInfo, error) {
-	if err := b.f.apply("AddParticipant"); err != nil {
-		return node.ParticipantInfo{}, err
-	}
-	return b.n.AddListenerParticipant(roomRef, tracks)
-}
-
-func (b *faultyBackend) RemoveParticipant(roomRef, ref string) error {
-	if err := b.f.apply("RemoveParticipant"); err != nil {
-		return err
-	}
-	return b.n.RemoveParticipant(roomRef, ref)
 }
