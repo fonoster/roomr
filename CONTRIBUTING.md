@@ -60,10 +60,20 @@ comes with its test, and a fixed bug with the test that failed before. The race 
 
 ## Releases
 
-Maintainers tag `vX.Y.Z`; the release workflow runs CI, builds the multi-arch image
-(`fonoster/roomr`) and publishes the release notes with the protos attached. A fake node image
-(`fonoster/roomr-fake`) is planned ([#13](https://github.com/fonoster/roomr/issues/13)) and will
-join the same workflow.
+Releases are automatic, driven by the conventional commits on `main`
+([release-please](https://github.com/googleapis/release-please)):
+
+1. Every merge to `main` updates one open release PR, `chore(main): release X.Y.Z`, with the next
+   version and `CHANGELOG.md`. `fix` bumps the patch, `feat` the minor; while the version is 0.x a
+   breaking change (`feat!:` or a `BREAKING CHANGE:` footer) bumps the minor too. `test`, `docs`,
+   `ci`, `build` and `chore` alone release nothing.
+2. To ship, merge the release PR. That tags `vX.Y.Z` and the release workflow runs CI on it, then
+   publishes the multi-arch images (`fonoster/roomr`, `fonoster/roomr-fake`), the npm package
+   `@fonoster/roomr`, the Helm chart (`oci://ghcr.io/fonoster/charts/roomr`) and the GitHub release
+   with the protos and static `roomr-fake` binaries attached.
+
+A pre-release is still a tag pushed by hand (`git tag v0.3.0-rc.1 && git push origin v0.3.0-rc.1`);
+it publishes the same way, without moving `:latest` or npm's `latest`.
 
 ## Code of conduct
 
