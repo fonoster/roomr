@@ -4,6 +4,7 @@
 // it against the image it pins.
 import { strict as assert } from "assert";
 import * as grpc from "@grpc/grpc-js";
+import * as net from "net";
 import { connect, NatsConnection, StringCodec, Subscription } from "nats";
 import { RoomrClient } from "..";
 import { TestApp } from "./app";
@@ -29,6 +30,31 @@ async function next(sub: Subscription, ok: (ev: Record<string, unknown>) => bool
   }
   throw new Error(`no matching message on ${sub.getSubject()} within ${ms} ms`);
 }
+
+/** The next n messages on a subscription, as JSON, in arrival order. */
+async function take(sub: Subscription, n: number, ms = 5000) {
+  const timer = setTimeout(() => sub.unsubscribe(), ms);
+  const got: Record<string, unknown>[] = [];
+  for await (const m of sub) {
+    got.push(JSON.parse(sc.decode(m.data)) as Record<string, unknown>);
+    if (got.length === n) break;
+  }
+  clearTimeout(timer);
+  sub.unsubscribe();
+  if (got.length < n) throw new Error(`${got.length} of ${n} messages on ${sub.getSubject()} within ${ms} ms`);
+  return got;
+}
+
+/** An address nothing listens on: a port the OS just handed out and took back. */
+const closedAddress = () =>
+  new Promise<string>((resolve, reject) => {
+    const s = net.createServer();
+    s.once("error", reject);
+    s.listen(0, "127.0.0.1", () => {
+      const port = (s.address() as net.AddressInfo).port;
+      s.close(() => resolve(`127.0.0.1:${port}`));
+    });
+  });
 
 const waitUntil = async (ok: () => Promise<boolean>, ms = 5000) => {
   const deadline = Date.now() + ms;
@@ -230,6 +256,35 @@ export function describeContract(makeTarget: () => Promise<ContractTarget>, nats
         await next(nc.subscribe(`roomr.nodes.${n.nodeRef}.heartbeat`), (ev) => ev.type === "node.heartbeat");
         await n.down();
         await next(sub, (ev) => ev.type === "node.down");
+      } finally {
+        await n.stop();
+      }
+    });
+
+    it("[CON-014] participant.left comes before room.ended when EndRoom follows RemoveParticipant", async function () {
+      const roomRef = ref("lobby");
+      await roomr.createRoom({ roomRef });
+      const sub = await subscribe(`roomr.events.room.${roomRef}`);
+      const p = await roomr.addParticipant({ roomRef, rtp: { ip: "127.0.0.1", port: 40000, codec: "L16/16000" } });
+      await roomr.removeParticipant(roomRef, p.participantRef);
+      await roomr.endRoom(roomRef);
+      const got = await take(sub, 3);
+      assert.deepEqual(got.map((ev) => [ev.type, ev.seq]),
+        [["participant.joined", 1], ["participant.left", 2], ["room.ended", 3]]);
+    });
+
+    it("[CON-015] a caller hears 180 before 503 when the session endpoint is unreachable", async function () {
+      const n = await target.startNode({ sessionEndpoint: await closedAddress() });
+      try {
+        const callRef = ref("gone");
+        const sub = await events(callRef);
+        const phone = await n.placeCall(callRef);
+        const ended = await next(sub, (ev) => ev.type === "call.ended");
+        assert.equal(ended.cause, "app_gone");
+        assert.equal(ended.sip_status, 503);
+        await waitUntil(async () => (await phone.status()).sip.includes(503));
+        const sip = (await phone.status()).sip.filter((s) => s !== 100);
+        assert.deepEqual(sip, [180, 503], `statuses ${sip}`);
       } finally {
         await n.stop();
       }
