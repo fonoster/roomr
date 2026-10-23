@@ -1,54 +1,106 @@
 name: Release
 
-# Tag vX.Y.Z to release. The tagged commit must pass CI; then the multi-arch images are published to
-# Docker Hub (fonoster/roomr and fonoster/roomr-fake, X.Y.Z and :latest for a stable tag), the npm
-# package @fonoster/roomr is published at X.Y.Z, and a GitHub release is created with generated
-# notes, the protos (platforms vendor them from here) and static roomr-fake binaries. The Helm
-# chart is pushed to oci://ghcr.io/fonoster/charts/roomr at X.Y.Z.
+# Releases follow the conventional commits on main (release-please): every push to main updates
+# one release PR ("chore(main): release X.Y.Z") with the next version (fix: patch, feat: minor,
+# while 0.x a breaking change: minor) and CHANGELOG.md. Merging that PR tags vX.Y.Z and creates
+# the GitHub release; this same run then checks the commit with CI and publishes: the multi-arch
+# images to Docker Hub (fonoster/roomr and fonoster/roomr-fake, X.Y.Z and :latest for a stable
+# tag), the npm package @fonoster/roomr at X.Y.Z (npm trusts this file, release.yaml), the Helm
+# chart to oci://ghcr.io/fonoster/charts/roomr at X.Y.Z, and the protos (platforms vendor them
+# from here) and static roomr-fake binaries on the GitHub release.
 #
-# If GitHub drops the tag's push event, run it by hand on the tag: gh workflow run Release --ref vX.Y.Z
+# The tag is created with GITHUB_TOKEN, which starts no new run, so publishing happens here and
+# not on the tag's push. A tag pushed by hand (a pre-release, v0.3.0-rc.1) still releases; if
+# GitHub drops its push event: gh workflow run Release --ref vX.Y.Z
 
 on:
   push:
+    branches: [main]
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  tag:
-    name: release from a tag only
+  release-please:
+    name: release PR
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      created: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
     steps:
-      - run: '[[ "$GITHUB_REF" == refs/tags/v* ]] || { echo "run this on a vX.Y.Z tag, not $GITHUB_REF"; exit 1; }'
+      - uses: googleapis/release-please-action@v5
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # The tag to publish: the one release-please just created, or the tag this run is on; none
+  # (nothing more runs) for a push to main that released nothing. Jobs below check !failure()
+  # because release-please is skipped on a tag's run.
+  tag:
+    name: tag to publish
+    needs: release-please
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+    steps:
+      - id: t
+        env:
+          CREATED: ${{ needs.release-please.outputs.created }}
+          RP_TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then tag="$GITHUB_REF_NAME"
+          elif [[ "$CREATED" == true ]]; then tag="$RP_TAG"
+          else tag=""; echo "No release: the release PR is up to date."
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   ci:
     needs: tag
+    if: ${{ !failure() && !cancelled() && needs.tag.outputs.tag != '' }}
     uses: ./.github/workflows/ci.yaml
 
   chart:
     name: publish the Helm chart
-    needs: ci
+    needs: [tag, ci]
+    if: ${{ !failure() && !cancelled() && needs.tag.outputs.tag != '' }}
+    env:
+      RELEASE_TAG: ${{ needs.tag.outputs.tag }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
       - uses: azure/setup-helm@v4
       - name: Package and push to oci://ghcr.io/fonoster/charts
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           helm package charts/roomr --version "$VERSION" --app-version "$VERSION" -d dist
           echo "$TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
           helm push "dist/roomr-$VERSION.tgz" oci://ghcr.io/fonoster/charts
 
   images:
     name: publish fonoster/${{ matrix.image.name }}
-    needs: ci
+    needs: [tag, ci]
+    if: ${{ !failure() && !cancelled() && needs.tag.outputs.tag != '' }}
+    env:
+      RELEASE_TAG: ${{ needs.tag.outputs.tag }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -58,11 +110,13 @@ jobs:
           - { name: roomr-fake, target: fake }
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
 
       - name: Version
         id: v
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           # A pre-release tag (v0.1.0-rc.1) does not move :latest.
           case "$VERSION" in *-*) echo "latest=false" >> "$GITHUB_OUTPUT" ;; *) echo "latest=true" >> "$GITHUB_OUTPUT" ;; esac
@@ -100,7 +154,10 @@ jobs:
 
   npm:
     name: publish @fonoster/roomr
-    needs: ci
+    needs: [tag, ci]
+    if: ${{ !failure() && !cancelled() && needs.tag.outputs.tag != '' }}
+    env:
+      RELEASE_TAG: ${{ needs.tag.outputs.tag }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -110,6 +167,8 @@ jobs:
         working-directory: js
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22.x"
@@ -118,23 +177,28 @@ jobs:
       - run: npm install -g npm@11.6.2
       - run: npm ci
       - name: Version from the tag
-        run: npm version --no-git-tag-version "${GITHUB_REF_NAME#v}"
+        run: npm version --no-git-tag-version "${RELEASE_TAG#v}"
       - run: npm run build
       # Trusted publishing: npm verifies this run (id-token), so no npm token is stored. The
       # package's trusted publisher on npmjs.com is fonoster/roomr, release.yaml.
       - name: Publish (a pre-release goes to the next tag)
         run: |
           TAG=latest
-          case "$GITHUB_REF_NAME" in *-*) TAG=next ;; esac
+          case "$RELEASE_TAG" in *-*) TAG=next ;; esac
           npm publish --access public --provenance --tag "$TAG"
 
   # Not after npm: the images, protos and binaries ship even when the npm publish fails.
   release:
     name: GitHub release
-    needs: images
+    needs: [tag, images]
+    if: ${{ !failure() && !cancelled() && needs.tag.outputs.tag != '' }}
+    env:
+      RELEASE_TAG: ${{ needs.tag.outputs.tag }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -147,14 +211,19 @@ jobs:
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os="${target%/*}"; arch="${target#*/}"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
-              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
+              -ldflags "-s -w -X main.version=${RELEASE_TAG#v}" \
               -o "dist/roomr-fake-$os-$arch" ./cmd/roomr-fake
           done
-      - name: Create the release
+      # release-please created the release with its changelog; a tag pushed by hand has none yet.
+      - name: Create the release or attach to it
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PRE=""
-          case "$GITHUB_REF_NAME" in *-*) PRE="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" $PRE --generate-notes --title "$GITHUB_REF_NAME" \
-            api/roomr/v1/roomr.proto api/session/v1/session.proto dist/roomr-fake-*
+          case "$RELEASE_TAG" in *-*) PRE="--prerelease" ;; esac
+          assets=(api/roomr/v1/roomr.proto api/session/v1/session.proto dist/roomr-fake-*)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" --clobber "${assets[@]}"
+          else
+            gh release create "$RELEASE_TAG" $PRE --generate-notes --title "$RELEASE_TAG" "${assets[@]}"
+          fi
