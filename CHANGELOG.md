@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/fonoster/roomr/compare/v0.2.5...v0.2.6) (2026-10-24)
+
+
+### Bug Fixes
+
+* force release ([#38](https://github.com/fonoster/roomr/issues/38)) ([16ec3a9](https://github.com/fonoster/roomr/commit/16ec3a9190c785641e31fc2077b0b9e6f4a07a51))
+
 ## [0.2.5](https://github.com/fonoster/roomr/compare/v0.2.4...v0.2.5) (2026-10-24)
 
 
