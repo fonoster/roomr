@@ -1,1 +1,3 @@
 bin/
+.scripts/release-card/node_modules/
+release-card-*.png
