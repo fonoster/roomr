@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/fonoster/roomr/compare/v0.2.4...v0.2.5) (2026-10-24)
+
+
+### CI
+
+* **release:** attach a release card to each GitHub release ([#36](https://github.com/fonoster/roomr/issues/36)) ([e38b65b](https://github.com/fonoster/roomr/commit/e38b65b85e2e768e25d76c169dde9a72c8d64c43))
+
 ## [0.2.4](https://github.com/fonoster/roomr/compare/v0.2.3...v0.2.4) (2026-10-23)
 
 
