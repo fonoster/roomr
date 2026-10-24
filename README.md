@@ -85,12 +85,6 @@ go test ./cmd/... ./internal/...
 
 End-to-end tests (`go test ./e2e/...`) need Docker and NATS; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Compatibility
-
-| Roomr | Fonoster |
-| --- | --- |
-| 0.1.x | main, once [fonoster/fonoster#1097](https://github.com/fonoster/fonoster/pull/1097) lands (it still builds Roomr from its own tree today) |
-
 ## Community
 
 We build in the open. Ask questions and share ideas in
