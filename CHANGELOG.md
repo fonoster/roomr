@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7](https://github.com/fonoster/roomr/compare/v0.2.6...v0.2.7) (2026-10-25)
+
+
+### Bug Fixes
+
+* **node:** a caller hanging up as the call is answered ends it with caller_hangup ([#41](https://github.com/fonoster/roomr/issues/41)) ([eb38782](https://github.com/fonoster/roomr/commit/eb38782eb3b316226959d21482d72b743b42a27b))
+
 ## [0.2.6](https://github.com/fonoster/roomr/compare/v0.2.5...v0.2.6) (2026-10-24)
 
 
