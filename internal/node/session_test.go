@@ -186,3 +186,35 @@ func (stallApp) Connect(s sessionv1.Session_ConnectServer) error {
 		}
 	}
 }
+
+// byeBeforeAckLeg is a leg whose caller hangs up while the 200 waits for its ACK: Answer fails
+// ("No ACK received") and the dialog closes just after, the way sipgo's server dialog does when a
+// BYE overtakes the ACK.
+type byeBeforeAckLeg struct{ *fakeLeg }
+
+func (l byeBeforeAckLeg) Answer([]byte) error {
+	go func() { time.Sleep(20 * time.Millisecond); l.hangup() }()
+	return errNoAck
+}
+
+var errNoAck = errorString("No ACK received")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
+
+// A caller who hangs up as the call is answered (BYE before the ACK) ends it with caller_hangup,
+// not node_error.
+func TestInboundByeBeforeAckIsCallerHangup(t *testing.T) {
+	a := &app{}
+	n := New(nil, Config{SessionEndpoint: serveApp(t, a), CallRefHeader: "X-Call-Ref", EmptyRoomTimeout: -1})
+	defer n.Shutdown()
+	leg := byeBeforeAckLeg{newFakeLeg()}
+	call := invite(leg.fakeLeg, map[string]string{"X-Call-Ref": "c-bye"})
+	call.Leg = leg
+	go n.Incoming(call)
+	eventually(t, func() bool { a.mu.Lock(); defer a.mu.Unlock(); return len(a.ended) == 1 })
+	if got := a.ended[0].GetCause(); got != ReasonCallerHangup {
+		t.Fatalf("Ended cause = %q, want %q", got, ReasonCallerHangup)
+	}
+}
