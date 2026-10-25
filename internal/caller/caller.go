@@ -179,7 +179,10 @@ type Call struct {
 	// heardPCM keeps what the caller heard (up to maxHeardFrames), for transcribing replies.
 	heardPCM []audio.Frame
 	cancel   context.CancelFunc
-	stop     chan struct{}
+	// hangingUp: Hangup ran while the call was still calling. If the callee's 200 crossed it, the
+	// call is ACKed and ended with BYE instead of being answered (RFC 3261 9.1).
+	hangingUp bool
+	stop      chan struct{}
 	// from and headers are the received INVITE's From URI and X- headers (calls the bot answered).
 	from    string
 	headers map[string]string
@@ -519,6 +522,14 @@ func (c *Call) await(ctx context.Context, key string) {
 		c.bot.mu.Unlock()
 	}
 	if err != nil {
+		// Our CANCEL crossed the callee's 200: the INVITE succeeded anyway, so the caller ACKs it
+		// and ends the dialog with BYE (RFC 3261 9.1), or the callee waits 64*T1 for the ACK and
+		// never ends the call.
+		if res := c.session.InviteResponse; res != nil && res.IsSuccess() {
+			c.recordStatus(int(res.StatusCode))
+			c.byeCrossed()
+			return
+		}
 		var final *sipgo.ErrDialogResponse
 		if e, ok := err.(*sipgo.ErrDialogResponse); ok {
 			final = e
@@ -540,6 +551,14 @@ func (c *Call) await(ctx context.Context, key string) {
 		return
 	}
 	c.recordStatus(200)
+	c.mu.Lock()
+	hangingUp := c.hangingUp
+	c.mu.Unlock()
+	if hangingUp {
+		// Hangup ran after the 200 arrived but before the call was answered here.
+		c.byeCrossed()
+		return
+	}
 	answer, err := sdp.Parse(c.session.InviteResponse.Body())
 	if err != nil {
 		_ = c.Hangup()
@@ -755,9 +774,24 @@ func (c *Call) Hangup() error {
 		}
 		return c.session.Bye(ctx)
 	case "calling":
+		c.mu.Lock()
+		c.hangingUp = true
+		c.mu.Unlock()
 		c.cancel()
 	}
 	return nil
+}
+
+// byeCrossed ends a call whose 200 crossed the caller's hangup: ACK, then BYE, then ended.
+func (c *Call) byeCrossed() {
+	_ = c.session.Ack(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = c.session.Bye(ctx)
+	c.mu.Lock()
+	c.state = "ended"
+	c.mu.Unlock()
+	c.endpoint.Close()
 }
 
 // Status reports what the call observed so far.

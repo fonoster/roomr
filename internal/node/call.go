@@ -635,6 +635,15 @@ func (c *call) answer(a *sessionv1.Answer) bool {
 	leg := c.leg
 	c.mu.Unlock()
 	if err := leg.leg.Answer(c.n.answerSDP(leg)); err != nil {
+		// The caller's BYE (or CANCEL) can end the dialog while the 200 waits for its ACK: that is
+		// the caller hanging up, not a node fault. The dialog closes right after it ends, so wait
+		// briefly for it.
+		select {
+		case <-leg.leg.Gone():
+			c.end(ReasonCallerHangup, 0)
+			return false
+		case <-time.After(250 * time.Millisecond):
+		}
 		c.n.cfg.Logger.Warn("200 OK", "callRef", c.ref, "err", err)
 		c.end(ReasonNodeError, 0)
 		return false
