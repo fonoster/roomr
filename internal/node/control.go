@@ -156,7 +156,8 @@ func (n *Node) CreateCall(req CallRequest) (CallInfo, error) {
 	if existing == nil {
 		n.reserved[roomRef]++
 	}
-	c := n.newCall(req.CallRef, false)
+	traceparent, _ := headerValue(req.To.Headers, telemetry.TraceparentHeader)
+	c := n.newCall(req.CallRef, false, traceparent)
 	c.req, c.from, c.to, c.roomRef, c.reserved = req, req.From, req.To.URI, roomRef, existing == nil
 	c.endpoint = req.Session
 	if c.endpoint == "" {
@@ -168,6 +169,7 @@ func (n *Node) CreateCall(req CallRequest) (CallInfo, error) {
 	for k, v := range req.To.Headers {
 		c.headers[k] = v
 	}
+	c.passTraceparent()
 	timeout := req.RingTimeout
 	if timeout <= 0 {
 		timeout = dialTimeout

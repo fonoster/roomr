@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -82,15 +83,33 @@ type call struct {
 	spanCtx context.Context
 }
 
-func (n *Node) newCall(ref string, inbound bool) *call {
+// newCall starts a call and its span; traceparent (from the INVITE, or from the app that dialed)
+// makes the span a child in that trace.
+func (n *Node) newCall(ref string, inbound bool, traceparent string) *call {
 	name := "roomr.call.outbound"
 	if inbound {
 		name = "roomr.call.inbound"
 	}
-	spanCtx, endSpan := telemetry.StartCall(context.Background(), name, ref)
+	spanCtx, endSpan := telemetry.StartCall(telemetry.Extract(context.Background(), traceparent), name, ref)
 	return &call{n: n, ref: ref, inbound: inbound, state: CallRinging, done: make(chan struct{}),
 		maxDuration: n.cfg.MaxDuration, metadata: map[string]string{}, headers: map[string]string{},
 		endSpan: endSpan, spanCtx: spanCtx}
+}
+
+// passTraceparent puts the call span's traceparent in the headers the session start carries, in
+// place of the one the call arrived with, so the app's session continues the trace under this
+// call's span.
+func (c *call) passTraceparent() {
+	tp := telemetry.Traceparent(c.spanCtx)
+	if tp == "" {
+		return
+	}
+	for k := range c.headers {
+		if strings.EqualFold(k, telemetry.TraceparentHeader) {
+			delete(c.headers, k)
+		}
+	}
+	c.headers[telemetry.TraceparentHeader] = tp
 }
 
 // register adds c to the node's call table, forgetting calls that ended longer ago than the
@@ -514,9 +533,10 @@ func (n *Node) Incoming(in IncomingCall) {
 	for ref == "" || n.lookupLocked(ref) != nil {
 		ref = n.inboundRefLocked(in.Headers, ref)
 	}
-	c := n.newCall(ref, true)
+	traceparent, _ := headerValue(in.Headers, telemetry.TraceparentHeader)
+	c := n.newCall(ref, true, traceparent)
 	callRef = ref
-	c.from, c.to, c.headers, c.endpoint = in.From, in.To, in.Headers, n.cfg.SessionEndpoint
+	c.from, c.to, c.headers, c.endpoint = in.From, in.To, maps.Clone(in.Headers), n.cfg.SessionEndpoint
 	if id, ok := headerValue(in.Headers, "Call-ID"); ok {
 		telemetry.SetSIPCallID(c.spanCtx, id)
 	} else if id, ok := headerValue(in.Headers, "i"); ok {
@@ -529,6 +549,7 @@ func (n *Node) Incoming(in IncomingCall) {
 	if c.headers == nil {
 		c.headers = map[string]string{}
 	}
+	c.passTraceparent()
 	c.event("call.started", Event{"direction": "inbound", "from": in.From, "to": in.To, "participant_ref": p.Ref})
 	if !room.addCall(c) {
 		ep.Close()
