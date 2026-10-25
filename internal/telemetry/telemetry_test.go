@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -74,5 +76,73 @@ func TestTraceparentPropagation(t *testing.T) {
 	}
 	if Extract(context.Background(), "garbage") == nil {
 		t.Fatal("nil context")
+	}
+}
+
+func TestSetSIPCallIDTagsTheCallSpan(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	defer otel.SetTracerProvider(prev)
+
+	ctx, end := StartCall(context.Background(), "roomr.call.inbound", "call-1")
+	SetSIPCallID(ctx, "abc@10.0.0.1")
+	end()
+
+	attrs := map[string]string{}
+	for _, a := range rec.Ended()[0].Attributes() {
+		attrs[string(a.Key)] = a.Value.AsString()
+	}
+	if attrs[CallRefKey] != "call-1" || attrs[SIPCallIDKey] != "abc@10.0.0.1" {
+		t.Fatalf("attributes = %v", attrs)
+	}
+}
+
+// recordingHandler keeps the attributes of every record it handles.
+type recordingHandler struct {
+	attrs *[]map[string]string
+	with  []slog.Attr
+}
+
+func (h recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h recordingHandler) Handle(_ context.Context, r slog.Record) error {
+	m := map[string]string{}
+	for _, a := range h.with {
+		m[a.Key] = a.Value.String()
+	}
+	r.Attrs(func(a slog.Attr) bool { m[a.Key] = a.Value.String(); return true })
+	*h.attrs = append(*h.attrs, m)
+	return nil
+}
+
+func (h recordingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return recordingHandler{h.attrs, append(append([]slog.Attr{}, h.with...), attrs...)}
+}
+
+func (h recordingHandler) WithGroup(string) slog.Handler { return h }
+
+func TestLogRecordsCarryTheCallRef(t *testing.T) {
+	var got []map[string]string
+	logger := slog.New(callRefHandler{recordingHandler{attrs: &got}})
+
+	logger.Warn("control stream ended", "callRef", "call-1")
+	logger.With("callRef", "call-2").Warn("hangup")
+	logger.Warn("no call")
+
+	if got[0][CallRefKey] != "call-1" || got[1][CallRefKey] != "call-2" {
+		t.Fatalf("records = %v", got)
+	}
+	if _, ok := got[2][CallRefKey]; ok {
+		t.Fatalf("a record without a call got a call ref: %v", got[2])
+	}
+}
+
+func TestLogHandlerIsUnchangedWithoutAnEndpoint(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	h := slog.NewJSONHandler(io.Discard, nil)
+	if LogHandler(h) != slog.Handler(h) {
+		t.Fatal("LogHandler wrapped the handler with telemetry off")
 	}
 }

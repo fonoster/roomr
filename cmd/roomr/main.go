@@ -127,7 +127,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = shutdownOtel(context.Background()) }()
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("nodeId", nodeID)
+	logger := slog.New(telemetry.LogHandler(slog.NewJSONHandler(os.Stderr, nil))).With("nodeId", nodeID)
 	codecs, err := audio.ParseCodecList(fc.Codecs)
 	if err != nil {
 		logger.Error("codecs", "err", err)

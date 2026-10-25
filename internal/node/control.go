@@ -10,6 +10,7 @@ import (
 	"github.com/fonoster/roomr/internal/audio"
 	"github.com/fonoster/roomr/internal/rtpio"
 	"github.com/fonoster/roomr/internal/sipheader"
+	"github.com/fonoster/roomr/internal/telemetry"
 )
 
 // Roomr operations (redesign-roomr, media-control "Roomr is a gRPC service with three nouns"):
@@ -276,6 +277,9 @@ func (c *call) joinLeg(room *Room, p *Participant) error {
 	c.mu.Lock()
 	c.leg, c.state, c.answeredAt = p, CallAnswered, now
 	c.mu.Unlock()
+	if l, ok := p.out.(interface{ CallID() string }); ok {
+		telemetry.SetSIPCallID(c.spanCtx, l.CallID())
+	}
 	room.servePhone(p)
 	go c.watchLeg(p.out.Gone(), ReasonCalleeHangup)
 	return nil

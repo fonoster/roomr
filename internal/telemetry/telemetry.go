@@ -6,15 +6,20 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"time"
 
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -23,6 +28,9 @@ import (
 
 // CallRefKey is the attribute every call-scoped span, log record and metric carries.
 const CallRefKey = "fonoster.call_ref"
+
+// SIPCallIDKey is the call's SIP Call-ID, the attribute Routr's SIP spans carry too.
+const SIPCallIDKey = "sip.call_id"
 
 const scope = "github.com/fonoster/roomr"
 
@@ -43,7 +51,7 @@ func Enabled() bool {
 // CallAttr is the call correlation attribute.
 func CallAttr(callRef string) attribute.KeyValue { return attribute.String(CallRefKey, callRef) }
 
-// Setup installs the global trace and metric providers. It returns the shutdown func (flushes
+// Setup installs the global trace, metric and log providers. It returns the shutdown func (flushes
 // exporters); with no OTLP endpoint configured it does nothing.
 func Setup(ctx context.Context, service, nodeID string) (func(context.Context) error, error) {
 	if !Enabled() {
@@ -66,12 +74,19 @@ func Setup(ctx context.Context, service, nodeID string) (func(context.Context) e
 	}
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res),
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(me, sdkmetric.WithInterval(15*time.Second))))
+	le, err := otlploghttp.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lp := sdklog.NewLoggerProvider(sdklog.WithResource(res),
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(le)))
 	otel.SetTracerProvider(tp)
 	otel.SetMeterProvider(mp)
+	global.SetLoggerProvider(lp)
 	return func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		return errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx))
+		return errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx), lp.Shutdown(ctx))
 	}, nil
 }
 
@@ -80,6 +95,57 @@ func Setup(ctx context.Context, service, nodeID string) (func(context.Context) e
 func StartCall(ctx context.Context, name, callRef string) (context.Context, func()) {
 	ctx, span := otel.Tracer(scope).Start(ctx, name, trace.WithAttributes(CallAttr(callRef)))
 	return ctx, func() { span.End() }
+}
+
+// SetSIPCallID tags the call's span (in ctx, from StartCall) with its SIP Call-ID, so a search
+// by Call-ID finds Routr's SIP spans and this call, which gives the call ref.
+func SetSIPCallID(ctx context.Context, callID string) {
+	if callID != "" {
+		trace.SpanFromContext(ctx).SetAttributes(attribute.String(SIPCallIDKey, callID))
+	}
+}
+
+// LogHandler returns h, plus the OTLP log bridge when telemetry is on: records keep going to h
+// and also go out over OTLP, with the node's `callRef` attribute also sent as
+// `fonoster.call_ref`.
+func LogHandler(h slog.Handler) slog.Handler {
+	if !Enabled() {
+		return h
+	}
+	return slog.NewMultiHandler(h, callRefHandler{otelslog.NewHandler(scope)})
+}
+
+// callRefHandler copies `callRef` attributes to `fonoster.call_ref`.
+type callRefHandler struct{ slog.Handler }
+
+func (h callRefHandler) Handle(ctx context.Context, r slog.Record) error {
+	var ref string
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == "callRef" {
+			ref = a.Value.String()
+			return false
+		}
+		return true
+	})
+	if ref != "" {
+		r = r.Clone()
+		r.AddAttrs(slog.String(CallRefKey, ref))
+	}
+	return h.Handler.Handle(ctx, r)
+}
+
+func (h callRefHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	for _, a := range attrs {
+		if a.Key == "callRef" {
+			attrs = append(attrs, slog.String(CallRefKey, a.Value.String()))
+			break
+		}
+	}
+	return callRefHandler{h.Handler.WithAttrs(attrs)}
+}
+
+func (h callRefHandler) WithGroup(name string) slog.Handler {
+	return callRefHandler{h.Handler.WithGroup(name)}
 }
 
 // Meters holds the node's instruments.

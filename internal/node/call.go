@@ -78,6 +78,8 @@ type call struct {
 	// endSpan ends the call's span (roomr.call.inbound or roomr.call.outbound, tagged with the
 	// call ref; OTLP traces when telemetry is set up, a no-op otherwise).
 	endSpan func()
+	// spanCtx holds the call's span, for attributes learned later (the SIP Call-ID).
+	spanCtx context.Context
 }
 
 func (n *Node) newCall(ref string, inbound bool) *call {
@@ -85,10 +87,10 @@ func (n *Node) newCall(ref string, inbound bool) *call {
 	if inbound {
 		name = "roomr.call.inbound"
 	}
-	_, endSpan := telemetry.StartCall(context.Background(), name, ref)
+	spanCtx, endSpan := telemetry.StartCall(context.Background(), name, ref)
 	return &call{n: n, ref: ref, inbound: inbound, state: CallRinging, done: make(chan struct{}),
 		maxDuration: n.cfg.MaxDuration, metadata: map[string]string{}, headers: map[string]string{},
-		endSpan: endSpan}
+		endSpan: endSpan, spanCtx: spanCtx}
 }
 
 // register adds c to the node's call table, forgetting calls that ended longer ago than the
@@ -515,6 +517,11 @@ func (n *Node) Incoming(in IncomingCall) {
 	c := n.newCall(ref, true)
 	callRef = ref
 	c.from, c.to, c.headers, c.endpoint = in.From, in.To, in.Headers, n.cfg.SessionEndpoint
+	if id, ok := headerValue(in.Headers, "Call-ID"); ok {
+		telemetry.SetSIPCallID(c.spanCtx, id)
+	} else if id, ok := headerValue(in.Headers, "i"); ok {
+		telemetry.SetSIPCallID(c.spanCtx, id)
+	}
 	c.room, c.roomRef, c.leg = room, room.Ref, p
 	p.call = c
 	n.registerLocked(c)
