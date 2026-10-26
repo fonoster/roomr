@@ -62,6 +62,9 @@ type Participant struct {
 	holdMu    sync.Mutex
 	heldAt    time.Time
 	resumedAt time.Time
+	// paused: the remote's latest offer says it wants no RTP (a=inactive or a=sendonly), and
+	// the node answered so: the room sends the leg nothing until an offer asks for it again.
+	paused atomic.Bool
 	// srtpKey is the node's SDES key on an encrypted leg ("" for plain RTP); cryptoTag answers
 	// the offer's a=crypto tag.
 	srtpKey   string
@@ -120,8 +123,15 @@ func (p *Participant) heldFor(now time.Time) time.Duration {
 	return now.Sub(p.heldAt)
 }
 
-// setSending records the direction of the remote's latest offer: not sending starts a hold,
-// sending ends it and restarts the media timeout's count.
+// setDirection applies the direction of the remote's latest offer: what it sends drives the
+// media timeout (setSending), what it receives whether the room sends it RTP.
+func (p *Participant) setDirection(sends, receives bool, now time.Time) {
+	p.setSending(sends, now)
+	p.paused.Store(!receives)
+}
+
+// setSending records whether the remote sends: not sending starts a hold, sending ends it and
+// restarts the media timeout's count.
 func (p *Participant) setSending(sending bool, now time.Time) {
 	p.holdMu.Lock()
 	defer p.holdMu.Unlock()
@@ -337,8 +347,8 @@ func (r *Room) servePhone(p *Participant) {
 				r.reportDTMF(p, d, SourceSIPInfo)
 			})
 		}
-		if src, ok := leg.(SendingSource); ok {
-			src.OnSending(func(sending bool) { p.setSending(sending, time.Now()) })
+		if src, ok := leg.(DirectionSource); ok {
+			src.OnDirection(func(sends, receives bool) { p.setDirection(sends, receives, time.Now()) })
 		}
 	}
 	go p.endpoint.Serve(rtpio.Handlers{
@@ -660,8 +670,8 @@ func (r *Room) tick() {
 		if p.Kind == KindPhone && !p.answered.Load() {
 			continue // no early media
 		}
-		if p.stopped.Load() {
-			continue
+		if p.stopped.Load() || p.paused.Load() {
+			continue // stopped, or on hold and answered as not receiving
 		}
 		if out, held := music[p.Ref]; held {
 			if out == nil {

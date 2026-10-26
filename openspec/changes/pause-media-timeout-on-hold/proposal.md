@@ -10,7 +10,11 @@ caller on hold for longer than `mediaTimeout` (15 s) is hung up with `media_time
 
 - The node answers in-dialog offers (re-INVITE and UPDATE) on an answered SIP leg: `200 OK` with
   the same stream, its direction the offer's mirror (RFC 3264). Today a re-INVITE is mistaken for
-  a new call.
+  a new call. It takes only what it can honor without moving its RTP endpoint: an offer that
+  moves the remote's address or port, drops the negotiated codec, changes the SRTP key or moves
+  telephone-event gets `488` and changes nothing, so the call is never worse off than before.
+  Before the answer an offer gets `500` with `Retry-After`. While the remote says it receives no
+  RTP (`a=inactive`, `a=sendonly`) the node sends it none, as its answer says.
 - Direction is read from the remote's side: `a=inactive` or `a=recvonly` means the remote sends no
   RTP, so the leg's media timeout is paused; `a=sendrecv` or `a=sendonly` (music on hold still
   flows) means it sends, and the timeout counts again from that offer.

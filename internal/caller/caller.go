@@ -176,6 +176,10 @@ type Call struct {
 	muted bool
 	// local is the SDP of the bot's last in-dialog offer (nil: the INVITE's).
 	local []byte
+	// earlyTo and earlyContact are the To (with the callee's tag) and Contact of a provisional
+	// response to the bot's INVITE: its early dialog (EarlyUpdate).
+	earlyTo      *sip.ToHeader
+	earlyContact *sip.ContactHeader
 	// spokeUntil is when the last queued frame went out (zero while speaking or before any).
 	spokeUntil time.Time
 	// heardPCM keeps what the caller heard (up to maxHeardFrames), for transcribing replies.
@@ -501,6 +505,12 @@ func (b *Bot) onResponse(m sip.Message) {
 	b.mu.Unlock()
 	if c != nil {
 		c.recordStatus(int(res.StatusCode))
+		if to, contact := res.To(), res.Contact(); res.IsProvisional() && to != nil && contact != nil &&
+			to.Params != nil && to.Params.Has("tag") {
+			c.mu.Lock()
+			c.earlyTo, c.earlyContact = sip.HeaderClone(to).(*sip.ToHeader), contact.Clone()
+			c.mu.Unlock()
+		}
 	}
 }
 
@@ -764,37 +774,183 @@ func (c *Call) remoteContact() sip.Uri {
 // "sendrecv" resumes it). It ACKs a 2xx re-INVITE and returns the final status and the
 // direction of the answer. The bot's RTP is unchanged; SetImpair stops it.
 func (c *Call) Reoffer(method sip.RequestMethod, dir string) (int, string, error) {
+	c.mu.Lock()
+	if c.local == nil && c.session != nil {
+		c.local = c.session.InviteRequest.Body()
+	}
+	body := sdp.WithDirection(c.local, dir)
+	c.mu.Unlock()
+	res, _, err := c.ReofferSDP(method, body)
+	if err != nil {
+		return 0, "", err
+	}
+	answer := ""
+	if m, err := sdp.Parse(res.Body()); err == nil {
+		answer = m.Direction
+	}
+	if res.IsSuccess() {
+		c.mu.Lock()
+		c.local = body
+		c.mu.Unlock()
+	}
+	return int(res.StatusCode), answer, nil
+}
+
+// LocalSDP is the SDP the bot last offered on a call it placed (its INVITE's at first).
+func (c *Call) LocalSDP() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.local == nil && c.session != nil {
+		return c.session.InviteRequest.Body()
+	}
+	return c.local
+}
+
+// ReofferSDP sends an in-dialog INVITE or UPDATE with body as its SDP (nil: none) on a call the
+// bot placed, and ACKs a 2xx re-INVITE. It returns the final response and the request sent.
+func (c *Call) ReofferSDP(method sip.RequestMethod, body []byte) (*sip.Response, *sip.Request, error) {
+	if c.session == nil {
+		return nil, nil, fmt.Errorf("reoffer: not a call the bot placed")
+	}
+	req := sip.NewRequest(method, c.remoteContact())
+	if len(body) > 0 {
+		req.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
+		req.SetBody(body)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	res, err := c.session.Do(ctx, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if method == sip.INVITE && res.IsSuccess() {
+		if err := c.ackReoffer(res, nil); err != nil {
+			return nil, nil, err
+		}
+	}
+	return res, req, nil
+}
+
+// ackReoffer ACKs a 2xx re-INVITE, with answer as its SDP when the 2xx carried the offer.
+func (c *Call) ackReoffer(res *sip.Response, answer []byte) error {
+	ack := sip.NewRequest(sip.ACK, c.remoteContact())
+	ack.AppendHeader(&sip.CSeqHeader{SeqNo: res.CSeq().SeqNo, MethodName: sip.ACK})
+	if len(answer) > 0 {
+		ack.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
+		ack.SetBody(answer)
+	}
+	return c.session.WriteRequest(ack)
+}
+
+// ReofferLate sends a re-INVITE without SDP (a late offer) and answers the node's offer in the
+// ACK with the bot's SDP, its direction dir. It returns the status and the offer's direction.
+func (c *Call) ReofferLate(dir string) (int, string, error) {
 	if c.session == nil {
 		return 0, "", fmt.Errorf("reoffer: not a call the bot placed")
 	}
-	c.mu.Lock()
-	if c.local == nil {
-		c.local = c.session.InviteRequest.Body()
-	}
-	c.local = sdp.WithDirection(c.local, dir)
-	body := c.local
-	c.mu.Unlock()
-	req := sip.NewRequest(method, c.remoteContact())
-	req.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
-	req.SetBody(body)
+	req := sip.NewRequest(sip.INVITE, c.remoteContact())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	res, err := c.session.Do(ctx, req)
 	if err != nil {
 		return 0, "", err
 	}
-	if method == sip.INVITE && res.IsSuccess() {
-		ack := sip.NewRequest(sip.ACK, c.remoteContact())
-		ack.AppendHeader(&sip.CSeqHeader{SeqNo: res.CSeq().SeqNo, MethodName: sip.ACK})
-		if err := c.session.WriteRequest(ack); err != nil {
+	offer := ""
+	if res.IsSuccess() {
+		if m, err := sdp.Parse(res.Body()); err == nil {
+			offer = m.Direction
+		}
+		if err := c.ackReoffer(res, sdp.WithDirection(c.LocalSDP(), dir)); err != nil {
 			return 0, "", err
 		}
 	}
-	answer := ""
-	if m, err := sdp.Parse(res.Body()); err == nil {
-		answer = m.Direction
+	return int(res.StatusCode), offer, nil
+}
+
+// ReofferTwice sends a re-INVITE with direction dir, then the same request again (same CSeq,
+// a new branch: a retransmission the node's transaction layer no longer matches), ACKing each
+// 2xx. It returns both answers' SDP.
+func (c *Call) ReofferTwice(dir string) ([]byte, []byte, error) {
+	res, req, err := c.ReofferSDP(sip.INVITE, sdp.WithDirection(c.LocalSDP(), dir))
+	if err != nil {
+		return nil, nil, err
 	}
-	return int(res.StatusCode), answer, nil
+	again := req.Clone()
+	again.RemoveHeader("Via")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	tx, err := c.bot.client.TransactionRequest(ctx, again, sipgo.ClientRequestAddVia)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Terminate()
+	for {
+		select {
+		case r := <-tx.Responses():
+			if r.IsProvisional() {
+				continue
+			}
+			if r.IsSuccess() {
+				if err := c.ackReoffer(r, nil); err != nil {
+					return nil, nil, err
+				}
+			}
+			return res.Body(), r.Body(), nil
+		case <-tx.Done():
+			return nil, nil, fmt.Errorf("retransmission: %v", tx.Err())
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		}
+	}
+}
+
+// EarlyUpdate sends an UPDATE with the bot's SDP, direction dir, in the early dialog of a call
+// the bot placed that is still ringing, and returns the final status and its Retry-After.
+func (c *Call) EarlyUpdate(dir string) (int, string, error) {
+	c.mu.Lock()
+	to, contact := c.earlyTo, c.earlyContact
+	c.mu.Unlock()
+	if c.session == nil || to == nil || contact == nil {
+		return 0, "", fmt.Errorf("early update: no early dialog")
+	}
+	invite := c.session.InviteRequest
+	req := sip.NewRequest(sip.UPDATE, contact.Address)
+	req.AppendHeader(sip.HeaderClone(invite.From()))
+	req.AppendHeader(sip.HeaderClone(to))
+	req.AppendHeader(sip.HeaderClone(invite.CallID()))
+	req.AppendHeader(&sip.CSeqHeader{SeqNo: invite.CSeq().SeqNo + 1, MethodName: sip.UPDATE})
+	maxFwd := sip.MaxForwardsHeader(70)
+	req.AppendHeader(&maxFwd)
+	if h := invite.Contact(); h != nil {
+		req.AppendHeader(sip.HeaderClone(h))
+	}
+	req.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
+	req.SetBody(sdp.WithDirection(invite.Body(), dir))
+	req.SetTransport(invite.Transport())
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	tx, err := c.bot.client.TransactionRequest(ctx, req, sipgo.ClientRequestAddVia)
+	if err != nil {
+		return 0, "", err
+	}
+	defer tx.Terminate()
+	for {
+		select {
+		case r := <-tx.Responses():
+			if r.IsProvisional() {
+				continue
+			}
+			retry := ""
+			if h := r.GetHeader("Retry-After"); h != nil {
+				retry = h.Value()
+			}
+			return int(r.StatusCode), retry, nil
+		case <-tx.Done():
+			return 0, "", fmt.Errorf("early update: %v", tx.Err())
+		case <-ctx.Done():
+			return 0, "", ctx.Err()
+		}
+	}
 }
 
 // SetImpair applies network impairment to what this call sends (load harness and tests).

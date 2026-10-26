@@ -107,6 +107,12 @@ went silent or the stream broke). `sip_status` is set when SIP gave one.
   `srtp_key`, the leg is SRTP; if it leaves it empty, plain RTP.
 - **Phone leg:** negotiated by SDP with Opus, G.722, PCMU and PCMA (configurable order). The room
   mixes at 16 kHz.
+- **In-dialog offers (hold):** a re-INVITE or UPDATE on an answered phone leg may change the media
+  direction only (hold and resume): it is answered `200 OK` with the same stream and the mirrored
+  direction, and the node sends no RTP to a leg that says it receives none. An offer that moves
+  the remote's address or port, drops the negotiated codec, changes the SRTP key or moves
+  telephone-event is answered `488 Not Acceptable Here` and changes nothing; one before the answer
+  gets `500` with `Retry-After`.
 - **Mix-minus:** every participant hears everyone except themselves. A listener hears the tracks it
   asked for and sends nothing.
 

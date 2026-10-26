@@ -7,6 +7,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/fonoster/roomr/internal/caller"
 	"github.com/fonoster/roomr/internal/node"
 	"github.com/fonoster/roomr/internal/rtpio"
+	"github.com/fonoster/roomr/internal/sdp"
 	"github.com/nats-io/nats.go"
 )
 
@@ -603,7 +605,14 @@ func TestROM036_CallerOnHold(t *testing.T) {
 	r, call, ac := holdRig(t, 0)
 	reoffer(t, call, sip.INVITE, "inactive", "inactive")
 	call.SetImpair(func() (int, time.Duration) { return 0, 0 })
-	time.Sleep(3500 * time.Millisecond) // more than twice the media timeout
+	// Answered inactive: the node sends the held caller no RTP.
+	time.Sleep(200 * time.Millisecond)
+	before := call.Status().AudibleMs
+	ac.play(440, 500)
+	time.Sleep(3300 * time.Millisecond) // more than twice the media timeout in all
+	if got := call.Status().AudibleMs - before; got > 0 {
+		t.Fatalf("the held caller heard %d ms", got)
+	}
 	if s := call.Status(); s.State != "answered" {
 		t.Fatalf("held call state %q", s.State)
 	}
@@ -611,6 +620,9 @@ func TestROM036_CallerOnHold(t *testing.T) {
 		t.Fatalf("held call ended: %v", ev)
 	}
 	reoffer(t, call, sip.INVITE, "sendrecv", "sendrecv")
+	before = call.Status().AudibleMs
+	ac.play(440, 500)
+	waitStatus(t, call, func(s caller.Status) bool { return s.AudibleMs-before >= 200 }, time.Second)
 	if e := ac.ended(t, 5*time.Second); e.GetCause() != "media_timeout" {
 		t.Fatalf("Ended = %v", e)
 	}
@@ -637,6 +649,96 @@ func TestROM036_CallerSendOnlyKeepsTheTimer(t *testing.T) {
 	if e := ac.ended(t, 5*time.Second); e.GetCause() != "media_timeout" {
 		t.Fatalf("Ended = %v", e)
 	}
+}
+
+// TestROM036_ReofferThatMovesMediaIsRefused: a re-INVITE that moves the caller's RTP port is
+// answered 488 and changes nothing: audio still flows both ways, and a hold offer afterwards is
+// taken.
+func TestROM036_ReofferThatMovesMediaIsRefused(t *testing.T) {
+	_, call, ac := holdRig(t, 0)
+	local := string(call.LocalSDP())
+	m := regexp.MustCompile(`m=audio (\d+) `).FindStringSubmatch(local)
+	if m == nil {
+		t.Fatalf("no audio port in\n%s", local)
+	}
+	moved := strings.Replace(local, "m=audio "+m[1]+" ", "m=audio 9 ", 1)
+	res, _, err := call.ReofferSDP(sip.INVITE, sdp.WithDirection([]byte(moved), "sendrecv"))
+	if err != nil || res.StatusCode != 488 {
+		t.Fatalf("moving re-INVITE: %v %v", res, err)
+	}
+	if res, _, err := call.ReofferSDP(sip.UPDATE, []byte(strings.Replace(moved, "RTP/AVP 0", "RTP/AVP 8", 1))); err != nil || res.StatusCode != 488 {
+		t.Fatalf("moving UPDATE: %v %v", res, err)
+	}
+	call.Speak("tone:1000", 400)
+	time.Sleep(700 * time.Millisecond)
+	if got := ac.m.get(1000); got < 10 {
+		t.Fatalf("after the 488 the app heard %d frames of the caller", got)
+	}
+	before := call.Status().AudibleMs
+	ac.play(440, 500)
+	waitStatus(t, call, func(s caller.Status) bool { return s.AudibleMs-before >= 300 }, 2*time.Second)
+	reoffer(t, call, sip.INVITE, "inactive", "inactive")
+	_ = call.Hangup()
+}
+
+// TestROM036_EarlyUpdateChangesNothing: an UPDATE while the call still rings is answered 500 with
+// Retry-After and does not hold the leg: once answered, a silent caller still ends the call.
+func TestROM036_EarlyUpdateChangesNothing(t *testing.T) {
+	r := startWith(t, rigOptions{nodeCfg: func(c *node.Config) { c.MediaTimeout = 1500 * time.Millisecond }})
+	r.app.mu.Lock()
+	r.app.delay = 1500 * time.Millisecond
+	r.app.mu.Unlock()
+	to := fmt.Sprintf("+1%d", time.Now().UnixNano()%1e9)
+	call, err := r.bot.Dial(r.sip, to, "", map[string]string{"X-App-Ref": "app-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, call, func(s caller.Status) bool { return contains(s.SIP, 180) }, time.Second)
+	status, retry, err := call.EarlyUpdate("inactive")
+	if err != nil || status != 500 || retry == "" {
+		t.Fatalf("early UPDATE: %d Retry-After %q err %v", status, retry, err)
+	}
+	ac := r.app.callTo(to)
+	waitStatus(t, call, func(s caller.Status) bool { return s.State == "answered" }, 3*time.Second)
+	call.SetImpair(func() (int, time.Duration) { return 0, 0 })
+	if e := ac.ended(t, 5*time.Second); e.GetCause() != "media_timeout" {
+		t.Fatalf("Ended = %v", e)
+	}
+}
+
+// TestROM036_LateOfferHold: a re-INVITE without SDP gets the node's sendrecv offer; the caller's
+// answer in the ACK holds the call (inactive), and a later one resumes it.
+func TestROM036_LateOfferHold(t *testing.T) {
+	r, call, ac := holdRig(t, 0)
+	status, offer, err := call.ReofferLate("inactive")
+	if err != nil || status != 200 || offer != "sendrecv" {
+		t.Fatalf("late offer: %d %q %v", status, offer, err)
+	}
+	call.SetImpair(func() (int, time.Duration) { return 0, 0 })
+	time.Sleep(3500 * time.Millisecond)
+	if ev := r.find(typed("call.ended", "call_ref", ac.start.GetCallRef())); ev != nil {
+		t.Fatalf("held call ended: %v", ev)
+	}
+	if status, _, err := call.ReofferLate("sendrecv"); err != nil || status != 200 {
+		t.Fatalf("late offer resume: %d %v", status, err)
+	}
+	if e := ac.ended(t, 5*time.Second); e.GetCause() != "media_timeout" {
+		t.Fatalf("Ended = %v", e)
+	}
+}
+
+// TestROM036_RetransmittedReInviteGetsTheSameAnswer: the same re-INVITE again (same CSeq) gets
+// the same answer, o= version included.
+func TestROM036_RetransmittedReInviteGetsTheSameAnswer(t *testing.T) {
+	_, call, _ := holdRig(t, 0)
+	first, again, err := call.ReofferTwice("inactive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) == 0 || string(first) != string(again) {
+		t.Fatalf("answers differ:\n%s\n---\n%s", first, again)
+	}
+	_ = call.Hangup()
 }
 
 // TestROM036_MediaHoldTimeout: with mediaHoldTimeout set, a call held that long ends with

@@ -1,6 +1,7 @@
 package node
 
 import (
+	"net"
 	"testing"
 	"time"
 
@@ -104,5 +105,63 @@ func TestROM036_SendingCallerKeepsTheTimer(t *testing.T) {
 	c.checkLimits(t0.Add(16 * time.Second))
 	if !c.ending || c.cause != ReasonMediaTimeout {
 		t.Fatalf("silent sendonly caller: ending %v cause %q", c.ending, c.cause)
+	}
+}
+
+// sinkParticipant is an answered phone participant whose RTP goes to a local socket it returns.
+func sinkParticipant(t *testing.T, ref string) (*Participant, *net.UDPConn) {
+	t.Helper()
+	sink, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sink.Close() })
+	ep, err := rtpio.Listen("127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(ep.Close)
+	codec, _ := audio.CodecFor("PCMU/8000")
+	if err := ep.Configure(codec, 0, -1, "127.0.0.1", sink.LocalAddr().(*net.UDPAddr).Port); err != nil {
+		t.Fatal(err)
+	}
+	p := newParticipant(ref, KindPhone, "PCMU/8000", codec, ep, 0)
+	p.answered.Store(true)
+	return p, sink
+}
+
+func received(sink *net.UDPConn) bool {
+	_ = sink.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	buf := make([]byte, 1500)
+	_, err := sink.Read(buf)
+	return err == nil
+}
+
+// TestROM036_LegAnsweredAsNotReceivingGetsNoRTP: a leg whose offer says it wants no RTP
+// (a=inactive or a=sendonly, answered inactive or recvonly) is sent none until an offer asks for
+// it again, so the answer is honest (RFC 3264 section 6.1).
+func TestROM036_LegAnsweredAsNotReceivingGetsNoRTP(t *testing.T) {
+	n := New(nil, Config{MediaTimeout: 15 * time.Second, EmptyRoomTimeout: -1})
+	defer n.Shutdown()
+	r := newRoom(n, "r1", false)
+	held, heldSink := sinkParticipant(t, "p-held")
+	other, otherSink := sinkParticipant(t, "p-other")
+	for _, p := range []*Participant{held, other} {
+		if err := r.add(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	held.setDirection(false, false, time.Now())
+	r.tick()
+	if received(heldSink) {
+		t.Fatal("a leg on hold (inactive) was sent RTP")
+	}
+	if !received(otherSink) {
+		t.Fatal("the other leg was sent no RTP")
+	}
+	held.setDirection(false, true, time.Now()) // recvonly: wants RTP again
+	r.tick()
+	if !received(heldSink) {
+		t.Fatal("a recvonly leg was sent no RTP")
 	}
 }

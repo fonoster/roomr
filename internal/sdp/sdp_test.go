@@ -156,3 +156,28 @@ func TestWithDirectionBumpsTheVersion(t *testing.T) {
 		t.Fatalf("resumed direction %q", m.Direction)
 	}
 }
+
+func TestReceives(t *testing.T) {
+	for dir, want := range map[string]bool{SendRecv: true, RecvOnly: true, SendOnly: false, Inactive: false} {
+		if got := (Media{Direction: dir}).Receives(); got != want {
+			t.Errorf("%s receives = %v", dir, got)
+		}
+	}
+}
+
+// An in-dialog answer keeps the session's o= ID, carries the version given and the direction.
+func TestWriteDescriptionSessionAndDirection(t *testing.T) {
+	body := WriteDescription(Description{Host: "10.0.0.1", Port: 5000, Codecs: []Codec{{0, "PCMU/8000"}},
+		DTMF: -1, SessionID: 42, SessionVersion: 7, Direction: Inactive})
+	m, err := Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.SessionID != 42 || m.SessionVersion != 7 || m.Direction != Inactive {
+		t.Fatalf("parsed %+v from\n%s", m, body)
+	}
+	fresh, _ := Parse(Write("10.0.0.1", 5000, 0, "PCMU/8000", -1))
+	if fresh.SessionID == 0 || fresh.SessionVersion != fresh.SessionID || fresh.Direction != SendRecv {
+		t.Fatalf("new session parsed %+v", fresh)
+	}
+}

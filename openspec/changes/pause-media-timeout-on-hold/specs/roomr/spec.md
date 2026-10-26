@@ -9,7 +9,16 @@ leg. A SIP leg is not silent while its remote is on hold: the node SHALL answer 
 UPDATE with SDP on an answered leg with `200 OK` and the same stream, its direction the offer's
 mirror (RFC 3264), and SHALL pause the leg's media timeout while the remote's latest offer says it
 sends no RTP (`a=inactive` or `a=recvonly`). An offer that says the remote sends (`a=sendrecv`,
-or `a=sendonly` such as music on hold) SHALL restart the count from that offer. With
+or `a=sendonly` such as music on hold) SHALL restart the count from that offer. While the
+remote's latest offer says it receives no RTP (`a=inactive` or `a=sendonly`) the node SHALL send
+the leg none, as its answer says. The node SHALL take only offers it can honor without touching the
+leg's RTP endpoint: one that moves the remote's address or port, drops the negotiated codec or
+payload type, changes the SRTP key or moves telephone-event SHALL be answered
+`488 Not Acceptable Here` and change nothing. An offer before the leg is answered (and a re-INVITE
+before the setup INVITE is ACKed) SHALL be answered `500` with `Retry-After` and change nothing. A
+re-INVITE without SDP SHALL get the node's stream as a `sendrecv` offer, the remote's answer in
+the ACK applying its direction. A retransmitted re-INVITE (same CSeq) SHALL get the same answer,
+and the node SHALL retransmit its `200` over UDP until the ACK. With
 `mediaHoldTimeout` set (off by default) the node SHALL end a call whose SIP leg has been on hold
 that long with `cause: "media_timeout"`.
 
@@ -40,3 +49,23 @@ that long with `cause: "media_timeout"`.
 #### Scenario: Held too long
 - **WHEN** `mediaHoldTimeout` is set and the caller stays on hold longer than it
 - **THEN** the node ends the call with `cause: "media_timeout"`
+
+#### Scenario: Offer that moves media
+- **WHEN** an answered caller sends a re-INVITE or UPDATE whose SDP moves its RTP address or port, or drops the negotiated codec
+- **THEN** the node answers `488 Not Acceptable Here` and the call keeps its media both ways
+
+#### Scenario: Offer before the answer
+- **WHEN** a ringing caller sends an UPDATE with `a=inactive`
+- **THEN** the node answers `500` with `Retry-After` and, once answered, a silent caller still ends the call with `cause: "media_timeout"`
+
+#### Scenario: Hold by late offer
+- **WHEN** the caller sends a re-INVITE without SDP and answers the node's `sendrecv` offer with `a=inactive` in the ACK
+- **THEN** the call is held as by an offer with `a=inactive`
+
+#### Scenario: Held leg gets no RTP
+- **WHEN** the node answered an offer `a=inactive` (or `a=recvonly` to `a=sendonly`)
+- **THEN** it sends that leg no RTP until an offer asks for it again
+
+#### Scenario: Retransmitted re-INVITE
+- **WHEN** a re-INVITE arrives again with the same CSeq
+- **THEN** the node answers it with the same SDP, `o=` version included, and does not apply it again

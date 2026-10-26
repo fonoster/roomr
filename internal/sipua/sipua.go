@@ -66,6 +66,9 @@ type UA struct {
 	regs                []*registration
 	// legs by dialog ID (Call-ID plus both tags), for SIP INFO keypresses.
 	legs sync.Map
+	// dialing holds the Call-IDs of INVITEs the node sent that are not answered yet: an
+	// in-dialog offer in their early dialog is answered 500 with Retry-After, not 481.
+	dialing sync.Map
 	// openDialogs counts INVITE dialogs in the server dialog cache (leak check, RV-B9).
 	openDialogs atomic.Int64
 	// udp is the UDP listening socket, bound in New so requests can go out from it.
@@ -147,6 +150,7 @@ func New(n *node.Node, cfg Config) (*UA, error) {
 	srv.OnInvite(u.guard(u.onInvite))
 	srv.OnRequest(sip.UPDATE, u.guard(u.onOffer))
 	srv.OnAck(u.guard(func(req *sip.Request, tx sip.ServerTransaction) {
+		u.onAckInDialog(req)
 		if u.dialogsTLS != nil && u.dialogsTLS.ReadAck(req, tx) == nil {
 			return
 		}
@@ -272,7 +276,7 @@ func (u *UA) onInvite(req *sip.Request, tx sip.ServerTransaction) {
 	}()
 	_ = dlg.Respond(100, "Trying", nil)
 
-	leg := &inviteLeg{dlg: dlg, final: make(chan int, 1)}
+	leg := &inviteLeg{dlg: dlg, final: make(chan int, 1), offer: media}
 	legID := dlg.ID
 	u.legs.Store(legID, leg)
 	go func() {
@@ -327,107 +331,10 @@ type inviteLeg struct {
 	dlg   *sipgo.DialogServerSession
 	final chan int
 	once  sync.Once
+	// offer is the INVITE's SDP (the setup of in-dialog offers, on Answer).
+	offer sdp.Media
 	dtmf
-	direction
-}
-
-// direction keeps the SDP a leg last gave the remote and reports the remote's media direction
-// from its in-dialog offers (node.SendingSource).
-type direction struct {
-	mu    sync.Mutex
-	local []byte
-	fn    func(bool)
-}
-
-func (d *direction) OnSending(fn func(bool)) {
-	d.mu.Lock()
-	d.fn = fn
-	d.mu.Unlock()
-}
-
-func (d *direction) setLocal(body []byte) {
-	d.mu.Lock()
-	d.local = body
-	d.mu.Unlock()
-}
-
-// answer is the node's answer to an in-dialog offer: the same stream, its direction the
-// offer's mirror. The node does not move media or change codecs mid-call.
-func (d *direction) answer(offer sdp.Media) []byte {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if len(d.local) == 0 {
-		return nil
-	}
-	d.local = sdp.WithDirection(d.local, sdp.AnswerDirection(offer.Direction))
-	return d.local
-}
-
-func (d *direction) report(sending bool) {
-	d.mu.Lock()
-	fn := d.fn
-	d.mu.Unlock()
-	if fn != nil {
-		fn(sending)
-	}
-}
-
-// offerLeg is an answered leg that takes in-dialog offers.
-type offerLeg interface {
-	dialog() *sipgo.Dialog
-	answer(offer sdp.Media) []byte
-	report(sending bool)
-}
-
-func (l *inviteLeg) dialog() *sipgo.Dialog { return &l.dlg.Dialog }
-func (l *outLeg) dialog() *sipgo.Dialog    { return &l.session.Dialog }
-
-// onOffer answers a re-INVITE or UPDATE on an answered leg. Its SDP direction tells the node
-// whether the remote is sending: a=inactive or a=recvonly (hold) pauses the leg's media timeout,
-// sendrecv or sendonly (music on hold still flows) resumes it (roomr, "A silent leg ends the
-// call"). A request without SDP is answered with the leg's current SDP and changes nothing.
-func (u *UA) onOffer(req *sip.Request, tx sip.ServerTransaction) {
-	v, ok := u.legFor(req)
-	leg, isOfferLeg := v.(offerLeg)
-	if !ok || !isOfferLeg {
-		_ = tx.Respond(sip.NewResponseFromRequest(req, 481, "Call/Transaction Does Not Exist", nil))
-		return
-	}
-	if err := leg.dialog().ReadRequest(req, tx); err != nil {
-		_ = tx.Respond(sip.NewResponseFromRequest(req, 500, "Server Error", nil))
-		return
-	}
-	var media sdp.Media
-	hasOffer := len(req.Body()) > 0
-	if hasOffer {
-		var err error
-		if media, err = sdp.Parse(req.Body()); err != nil {
-			_ = tx.Respond(sip.NewResponseFromRequest(req, 488, "Not Acceptable Here", nil))
-			return
-		}
-	}
-	var body []byte
-	if hasOffer {
-		body = leg.answer(media)
-	} else if req.IsInvite() {
-		body = leg.answer(sdp.Media{Direction: sdp.SendRecv})
-	}
-	res := sip.NewResponseFromRequest(req, 200, "OK", body)
-	if len(body) > 0 {
-		res.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
-	}
-	contact := u.contact
-	if u.dialogsTLS != nil && strings.EqualFold(req.Transport(), "TLS") {
-		contact = u.tlsContact
-	}
-	res.AppendHeader(sip.HeaderClone(&contact))
-	if err := tx.Respond(res); err != nil {
-		return
-	}
-	if hasOffer {
-		u.cfg.Logger.Debug("in-dialog offer", "method", string(req.Method), "direction", media.Direction)
-		leg.report(media.Sends())
-	}
+	inDialog
 }
 
 // dtmf holds a leg's SIP INFO keypress handler (node.DTMFSource).
@@ -529,7 +436,7 @@ func (l *inviteLeg) Ring() error { return l.dlg.Respond(180, "Ringing", nil) }
 func (l *inviteLeg) Gone() <-chan struct{} { return l.dlg.Context().Done() }
 
 func (l *inviteLeg) Answer(body []byte) error {
-	l.setLocal(body)
+	l.setupInbound(body, l.offer)
 	err := l.dlg.RespondSDP(body)
 	l.finish(200)
 	return err
@@ -635,7 +542,7 @@ func (u *UA) awaitAnswer(ctx context.Context, session *sipgo.DialogClientSession
 		return nil, nil, err
 	}
 	leg := &outLeg{session: session}
-	leg.setLocal(session.InviteRequest.Body())
+	leg.setupDialed(session.InviteRequest.Body(), session.InviteResponse.Body())
 	legID := session.ID
 	u.legs.Store(legID, leg)
 	go func() {
@@ -731,6 +638,10 @@ func (u *UA) DialTarget(ctx context.Context, t node.SipTarget, from string, offe
 	if err != nil {
 		return nil, nil, err
 	}
+	if id := req.CallID(); id != nil {
+		u.dialing.Store(id.Value(), struct{}{})
+		defer u.dialing.Delete(id.Value())
+	}
 	return u.awaitAnswer(ctx, session, t.Username, t.Password, onProgress)
 }
 
@@ -744,7 +655,7 @@ func orDefault(s, d string) string {
 type outLeg struct {
 	session *sipgo.DialogClientSession
 	dtmf
-	direction
+	inDialog
 }
 
 func (l *outLeg) Bye() error {

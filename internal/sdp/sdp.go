@@ -26,6 +26,8 @@ type Media struct {
 	// Direction is the stream's a=sendrecv, sendonly, recvonly or inactive as the writer means
 	// it (media level over session level); SendRecv when absent (RFC 4566).
 	Direction string
+	// SessionID and SessionVersion are the o= line's (0 when absent or not numbers).
+	SessionID, SessionVersion uint64
 }
 
 // The SDP direction attributes (RFC 3264 section 6.1).
@@ -39,6 +41,10 @@ const (
 // Sends reports whether the writer of the description sends RTP: sendrecv and sendonly (music
 // on hold) do, recvonly and inactive do not.
 func (m Media) Sends() bool { return m.Direction != RecvOnly && m.Direction != Inactive }
+
+// Receives reports whether the writer of the description wants RTP: sendrecv and recvonly do,
+// sendonly and inactive do not.
+func (m Media) Receives() bool { return m.Direction != SendOnly && m.Direction != Inactive }
 
 // AnswerDirection is the direction an answer takes to an offer's (RFC 3264 section 6.1): the
 // mirror of sendonly and recvonly, inactive to inactive, sendrecv otherwise.
@@ -74,6 +80,11 @@ func Parse(body []byte) (Media, error) {
 				sessionDir = line[2:]
 			} else if inAudio {
 				audioDir = line[2:]
+			}
+		case strings.HasPrefix(line, "o="):
+			if f := strings.Fields(line[2:]); len(f) >= 3 {
+				m.SessionID, _ = strconv.ParseUint(f[1], 10, 64)
+				m.SessionVersion, _ = strconv.ParseUint(f[2], 10, 64)
 			}
 		case strings.HasPrefix(line, "c=IN IP4 "):
 			host := strings.TrimPrefix(line, "c=IN IP4 ")
@@ -248,6 +259,12 @@ type Description struct {
 	DTMF int
 	// Crypto, when set, makes the stream RTP/SAVP with this SDES key.
 	Crypto *Crypto
+	// SessionID and SessionVersion go in the o= line; a zero SessionID means a new session (both
+	// the current time). An in-dialog answer keeps the ID and raises the version on a change
+	// (RFC 3264 section 8).
+	SessionID, SessionVersion uint64
+	// Direction is the a= direction line; "" writes sendrecv.
+	Direction string
 }
 
 // Write builds an offer or answer for one audio stream with one codec.
@@ -257,7 +274,15 @@ func Write(host string, port int, pt int, codec string, dtmf int) []byte {
 
 // WriteDescription builds an offer or answer for one audio stream.
 func WriteDescription(d Description) []byte {
-	id := time.Now().UnixNano() / 1000
+	id, version := d.SessionID, d.SessionVersion
+	if id == 0 {
+		id = uint64(time.Now().UnixNano() / 1000)
+		version = id
+	}
+	dir := d.Direction
+	if dir == "" {
+		dir = SendRecv
+	}
 	pts := []string{}
 	for _, c := range d.Codecs {
 		pts = append(pts, strconv.Itoa(c.PT))
@@ -271,7 +296,7 @@ func WriteDescription(d Description) []byte {
 	}
 	lines := []string{
 		"v=0",
-		fmt.Sprintf("o=fonoster %d %d IN IP4 %s", id, id, d.Host),
+		fmt.Sprintf("o=fonoster %d %d IN IP4 %s", id, version, d.Host),
 		"s=fonoster",
 		"c=IN IP4 " + d.Host,
 		"t=0 0",
@@ -299,6 +324,6 @@ func WriteDescription(d Description) []byte {
 		}
 		lines = append(lines, fmt.Sprintf("a=crypto:%d %s inline:%s", tag, d.Crypto.Suite, d.Crypto.Key))
 	}
-	lines = append(lines, "a=ptime:20", "a=sendrecv")
+	lines = append(lines, "a=ptime:20", "a="+dir)
 	return []byte(strings.Join(lines, "\r\n") + "\r\n")
 }

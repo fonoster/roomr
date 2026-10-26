@@ -87,11 +87,12 @@ type DTMFSource interface {
 	OnDTMF(func(digit string))
 }
 
-// SendingSource is a SIP leg that reports the remote's media direction from in-dialog offers
-// (re-INVITE, UPDATE): sending is false while its SDP says it sends no RTP (a=inactive or
-// a=recvonly, a caller on hold) and true again once an offer restores sending.
-type SendingSource interface {
-	OnSending(func(sending bool))
+// DirectionSource is a SIP leg that reports the remote's media direction from in-dialog offers
+// (re-INVITE, UPDATE): sends is false while its SDP says it sends no RTP (a=inactive or
+// a=recvonly, a caller on hold), receives is false while it says it wants none (a=inactive or
+// a=sendonly). A handler registered after a report gets the last one at once.
+type DirectionSource interface {
+	OnDirection(func(sends, receives bool))
 }
 
 // Referrer is a call leg that can be transferred with SIP REFER.
