@@ -373,7 +373,8 @@ type Start struct {
 	Direction Start_Direction        `protobuf:"varint,2,opt,name=direction,proto3,enum=session.v1.Start_Direction" json:"direction,omitempty"`
 	From      string                 `protobuf:"bytes,3,opt,name=from,proto3" json:"from,omitempty"`
 	To        string                 `protobuf:"bytes,4,opt,name=to,proto3" json:"to,omitempty"`
-	// Every INVITE header, as received (inbound) or as sent (outbound).
+	// Every INVITE header, as received (inbound) or as sent (outbound), except traceparent: the
+	// call span's W3C trace context, so the session continues the call's trace.
 	Headers map[string]string `protobuf:"bytes,5,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Opaque to the node: CreateCall's metadata, passed through untouched.
 	Metadata map[string]string `protobuf:"bytes,6,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`

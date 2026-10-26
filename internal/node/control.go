@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -170,6 +171,22 @@ func (n *Node) CreateCall(req CallRequest) (CallInfo, error) {
 		c.headers[k] = v
 	}
 	c.passTraceparent()
+	// The INVITE carries the call span's trace context too (not the app's), so Routr's SIP
+	// spans for this call are children of roomr.call.outbound.
+	if tp, ok := c.headers[telemetry.TraceparentHeader]; ok {
+		to := req.To
+		to.Headers = maps.Clone(req.To.Headers)
+		if to.Headers == nil {
+			to.Headers = map[string]string{}
+		}
+		for k := range to.Headers {
+			if strings.EqualFold(k, telemetry.TraceparentHeader) {
+				delete(to.Headers, k)
+			}
+		}
+		to.Headers[telemetry.TraceparentHeader] = tp
+		c.req.To = to
+	}
 	timeout := req.RingTimeout
 	if timeout <= 0 {
 		timeout = dialTimeout

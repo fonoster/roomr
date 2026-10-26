@@ -537,9 +537,8 @@ func (n *Node) Incoming(in IncomingCall) {
 	c := n.newCall(ref, true, traceparent)
 	callRef = ref
 	c.from, c.to, c.headers, c.endpoint = in.From, in.To, maps.Clone(in.Headers), n.cfg.SessionEndpoint
+	// sipgo writes the compact form ("i") as Call-ID.
 	if id, ok := headerValue(in.Headers, "Call-ID"); ok {
-		telemetry.SetSIPCallID(c.spanCtx, id)
-	} else if id, ok := headerValue(in.Headers, "i"); ok {
 		telemetry.SetSIPCallID(c.spanCtx, id)
 	}
 	c.room, c.roomRef, c.leg = room, room.Ref, p

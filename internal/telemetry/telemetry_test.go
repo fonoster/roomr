@@ -139,10 +139,22 @@ func TestLogRecordsCarryTheCallRef(t *testing.T) {
 }
 
 func TestLogHandlerIsUnchangedWithoutAnEndpoint(t *testing.T) {
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	for _, k := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"} {
+		t.Setenv(k, "")
+	}
 	h := slog.NewJSONHandler(io.Discard, nil)
 	if LogHandler(h) != slog.Handler(h) {
 		t.Fatal("LogHandler wrapped the handler with telemetry off")
+	}
+}
+
+func TestNoLogExportWithOnlyATracesEndpoint(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4318/v1/traces")
+	h := slog.NewJSONHandler(io.Discard, nil)
+	if LogHandler(h) != slog.Handler(h) {
+		t.Fatal("logs would go to localhost: only a traces endpoint is set")
 	}
 }

@@ -34,6 +34,12 @@ const SIPCallIDKey = "sip.call_id"
 
 const scope = "github.com/fonoster/roomr"
 
+// logsEnabled reports whether log records have an OTLP endpoint: the base one or the logs one.
+func logsEnabled() bool {
+	return Enabled() && (os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
+		os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != "")
+}
+
 // Enabled reports whether an OTLP endpoint is configured (and OTEL_SDK_DISABLED is not true).
 func Enabled() bool {
 	if os.Getenv("OTEL_SDK_DISABLED") == "true" {
@@ -74,19 +80,30 @@ func Setup(ctx context.Context, service, nodeID string) (func(context.Context) e
 	}
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res),
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(me, sdkmetric.WithInterval(15*time.Second))))
-	le, err := otlploghttp.New(ctx)
-	if err != nil {
-		return nil, err
+	shutdowns := []func(context.Context) error{tp.Shutdown, mp.Shutdown}
+	// Logs only with an endpoint for them: with only a traces (or metrics) endpoint the exporter
+	// would fall back to localhost.
+	if logsEnabled() {
+		le, err := otlploghttp.New(ctx)
+		if err != nil {
+			_ = errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx))
+			return nil, err
+		}
+		lp := sdklog.NewLoggerProvider(sdklog.WithResource(res),
+			sdklog.WithProcessor(sdklog.NewBatchProcessor(le)))
+		global.SetLoggerProvider(lp)
+		shutdowns = append(shutdowns, lp.Shutdown)
 	}
-	lp := sdklog.NewLoggerProvider(sdklog.WithResource(res),
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(le)))
 	otel.SetTracerProvider(tp)
 	otel.SetMeterProvider(mp)
-	global.SetLoggerProvider(lp)
 	return func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		return errors.Join(tp.Shutdown(ctx), mp.Shutdown(ctx), lp.Shutdown(ctx))
+		var errs []error
+		for _, shutdown := range shutdowns {
+			errs = append(errs, shutdown(ctx))
+		}
+		return errors.Join(errs...)
 	}, nil
 }
 
@@ -109,7 +126,7 @@ func SetSIPCallID(ctx context.Context, callID string) {
 // and also go out over OTLP, with the node's `callRef` attribute also sent as
 // `fonoster.call_ref`.
 func LogHandler(h slog.Handler) slog.Handler {
-	if !Enabled() {
+	if !logsEnabled() {
 		return h
 	}
 	return slog.NewMultiHandler(h, callRefHandler{otelslog.NewHandler(scope)})
