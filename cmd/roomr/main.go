@@ -116,8 +116,8 @@ func main() {
 		rtpio.SetPortRange(fc.RTP.PortMin, fc.RTP.PortMax)
 	}
 
-	// OTLP traces and metrics: telemetry.otlpEndpoint in the file, else the standard OTEL_*
-	// variables; unset means no-op (add-platform). Logs go to stderr only.
+	// OTLP traces, metrics and logs: telemetry.otlpEndpoint in the file, else the standard
+	// OTEL_* variables; unset means no-op (add-platform). Logs always go to stderr as well.
 	if fc.Telemetry.OTLPEndpoint != "" {
 		_ = os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", fc.Telemetry.OTLPEndpoint)
 	}
@@ -127,11 +127,17 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = shutdownOtel(context.Background()) }()
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("nodeId", nodeID)
+	logger := slog.New(telemetry.LogHandler(slog.NewJSONHandler(os.Stderr, nil))).With("nodeId", nodeID)
+	// fatal logs the reason and flushes telemetry before exiting: os.Exit skips deferred calls,
+	// so the record that explains the exit would otherwise stay in the OTLP batch.
+	fatal := func(msg string, args ...any) {
+		logger.Error(msg, args...)
+		_ = shutdownOtel(context.Background())
+		os.Exit(1)
+	}
 	codecs, err := audio.ParseCodecList(fc.Codecs)
 	if err != nil {
-		logger.Error("codecs", "err", err)
-		os.Exit(1)
+		fatal("codecs", "err", err)
 	}
 	logger.Info("sip codecs", "offer", strings.Join(codecs, ","), "opus", audio.OpusAvailable)
 	if configPath != "" {
@@ -144,8 +150,7 @@ func main() {
 	if fc.NATS.User != "" {
 		pass, err := secretref.Resolve(fc.NATS.Password)
 		if err != nil {
-			logger.Error("nats password", "err", err)
-			os.Exit(1)
+			fatal("nats password", "err", err)
 		}
 		// Replies arrive under the user's own inbox prefix, the only inbox its NATS permissions
 		// let it read (nats-permissions/roomr.conf): no service reads another's replies.
@@ -153,20 +158,17 @@ func main() {
 	}
 	registrations, err := buildRegistrations(fc)
 	if err != nil {
-		logger.Error("sip", "err", err)
-		os.Exit(1)
+		fatal("sip", "err", err)
 	}
 	nc, err := nats.Connect(natsURL, natsOpts...)
 	if err != nil {
-		logger.Error("nats", "err", err)
-		os.Exit(1)
+		fatal("nats", "err", err)
 	}
 	defer nc.Close()
 
 	sessTLS, err := sessionTLS(fc)
 	if err != nil {
-		logger.Error("sessionTls", "err", err)
-		os.Exit(1)
+		fatal("sessionTls", "err", err)
 	}
 	_, portText, _ := net.SplitHostPort(fc.SIP.Listen)
 	listenPort, _ := strconv.Atoi(portText)
@@ -186,16 +188,14 @@ func main() {
 	// The PEM settings are file paths or secret:// references (edgetls, add-platform 4.2).
 	edge, err := edgetls.Build(edgetls.Options{Cert: fc.TLS.Cert, Key: fc.TLS.Key, CA: fc.TLS.CA})
 	if err != nil {
-		logger.Error("tls", "err", err)
-		os.Exit(1)
+		fatal("tls", "err", err)
 	}
 	ua, err := sipua.New(n, sipua.Config{Listen: fc.SIP.Listen, AdvertiseHost: sipHost, AdvertisePort: sipPort,
 		Registrations: registrations, OnRegistrationState: registrationStatePublisher(nc, nodeID, logger),
 		ReregisterDelta: fc.ReregisterDelta, OutboundProxy: fc.SIP.OutboundProxy, TLSListen: fc.TLS.Listen,
 		TLSConfig: edge.Server, ClientTLS: edge.Client, Logger: logger})
 	if err != nil {
-		logger.Error("sip", "err", err)
-		os.Exit(1)
+		fatal("sip", "err", err)
 	}
 	if m, err := telemetry.RegisterNode(nodeID, n.ActiveRooms); err == nil {
 		telemetry.SetMeters(m)
@@ -205,13 +205,11 @@ func main() {
 	t := fc.Control.GRPC.TLS
 	grpcTLS, err := edgetls.Build(edgetls.Options{Cert: t.Cert, Key: t.Key, ClientCA: t.ClientCA})
 	if err != nil {
-		logger.Error("roomr grpc tls", "err", err)
-		os.Exit(1)
+		fatal("roomr grpc tls", "err", err)
 	}
 	roomrServer, err := control.Listen(grpcListen, n, grpcTLS.Server, logger)
 	if err != nil {
-		logger.Error("roomr grpc listen", "addr", grpcListen, "err", err)
-		os.Exit(1)
+		fatal("roomr grpc listen", "addr", grpcListen, "err", err)
 	}
 	logger.Info("roomr grpc", "addr", roomrServer.Addr(), "tls", grpcTLS.Server != nil, "mutual", grpcTLS.Mutual)
 	go func() {
@@ -225,8 +223,7 @@ func main() {
 	defer cancel()
 	go func() {
 		if err := ua.Serve(ctx); err != nil {
-			logger.Error("sip serve", "err", err)
-			os.Exit(1)
+			fatal("sip serve", "err", err)
 		}
 	}()
 	fmt.Printf("roomr %s ready sip=%s\n", nodeID, fc.SIP.Listen)

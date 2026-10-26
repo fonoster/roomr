@@ -12,7 +12,7 @@ func TestEndedCallsExpireAfterTheDedupeWindow(t *testing.T) {
 	}
 	n := New(nil, Config{})
 	n.window = 50 * time.Millisecond
-	c := n.newCall("c1", false)
+	c := n.newCall("c1", false, "")
 	n.mu.Lock()
 	n.registerLocked(c)
 	n.mu.Unlock()

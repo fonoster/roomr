@@ -643,3 +643,11 @@ func (l *outLeg) Bye() error {
 }
 
 func (l *outLeg) Gone() <-chan struct{} { return l.session.Context().Done() }
+
+// CallID is the dialog's SIP Call-ID (telemetry correlates the call with Routr's spans by it).
+func (l *outLeg) CallID() string {
+	if id := l.session.InviteRequest.CallID(); id != nil {
+		return id.Value()
+	}
+	return ""
+}

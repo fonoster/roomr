@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/fonoster/roomr/internal/audio"
 	"github.com/fonoster/roomr/internal/rtpio"
 	"github.com/fonoster/roomr/internal/sipheader"
+	"github.com/fonoster/roomr/internal/telemetry"
 )
 
 // Roomr operations (redesign-roomr, media-control "Roomr is a gRPC service with three nouns"):
@@ -155,7 +157,8 @@ func (n *Node) CreateCall(req CallRequest) (CallInfo, error) {
 	if existing == nil {
 		n.reserved[roomRef]++
 	}
-	c := n.newCall(req.CallRef, false)
+	traceparent, _ := headerValue(req.To.Headers, telemetry.TraceparentHeader)
+	c := n.newCall(req.CallRef, false, traceparent)
 	c.req, c.from, c.to, c.roomRef, c.reserved = req, req.From, req.To.URI, roomRef, existing == nil
 	c.endpoint = req.Session
 	if c.endpoint == "" {
@@ -166,6 +169,23 @@ func (n *Node) CreateCall(req CallRequest) (CallInfo, error) {
 	}
 	for k, v := range req.To.Headers {
 		c.headers[k] = v
+	}
+	c.passTraceparent()
+	// The INVITE carries the call span's trace context too (not the app's), so Routr's SIP
+	// spans for this call are children of roomr.call.outbound.
+	if tp, ok := c.headers[telemetry.TraceparentHeader]; ok {
+		to := req.To
+		to.Headers = maps.Clone(req.To.Headers)
+		if to.Headers == nil {
+			to.Headers = map[string]string{}
+		}
+		for k := range to.Headers {
+			if strings.EqualFold(k, telemetry.TraceparentHeader) {
+				delete(to.Headers, k)
+			}
+		}
+		to.Headers[telemetry.TraceparentHeader] = tp
+		c.req.To = to
 	}
 	timeout := req.RingTimeout
 	if timeout <= 0 {
@@ -276,6 +296,9 @@ func (c *call) joinLeg(room *Room, p *Participant) error {
 	c.mu.Lock()
 	c.leg, c.state, c.answeredAt = p, CallAnswered, now
 	c.mu.Unlock()
+	if l, ok := p.out.(interface{ CallID() string }); ok {
+		telemetry.SetSIPCallID(c.spanCtx, l.CallID())
+	}
 	room.servePhone(p)
 	go c.watchLeg(p.out.Gone(), ReasonCalleeHangup)
 	return nil
