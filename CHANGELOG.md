@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/fonoster/roomr/compare/v0.2.7...v0.3.0) (2026-10-26)
+
+
+### Features
+
+* **telemetry:** logs over OTLP and sip.call_id on the call span ([#43](https://github.com/fonoster/roomr/issues/43)) ([0a28e3c](https://github.com/fonoster/roomr/commit/0a28e3ca0641e5c7dad24ddd4ae165c2198e60af))
+
 ## [0.2.7](https://github.com/fonoster/roomr/compare/v0.2.6...v0.2.7) (2026-10-25)
 
 
