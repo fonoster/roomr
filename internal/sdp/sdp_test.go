@@ -93,3 +93,66 @@ func TestOpusIsWrittenPerRFC7587(t *testing.T) {
 		}
 	}
 }
+
+// The remote's direction decides whether it sends RTP (roomr, "A silent leg ends the call": a
+// held caller): sendonly (music on hold) sends, recvonly and inactive do not.
+func TestDirection(t *testing.T) {
+	cases := []struct {
+		name, body, dir string
+		sends           bool
+	}{
+		{"absent", offer, SendRecv, true},
+		{"media inactive", offer + "a=inactive\r\n", Inactive, false},
+		{"media recvonly", offer + "a=recvonly\r\n", RecvOnly, false},
+		{"media sendonly", offer + "a=sendonly\r\n", SendOnly, true},
+		{"session inactive", strings.Replace(offer, "t=0 0\r\n", "t=0 0\r\na=inactive\r\n", 1), Inactive, false},
+		{"media over session", strings.Replace(offer, "t=0 0\r\n", "t=0 0\r\na=inactive\r\n", 1) + "a=sendrecv\r\n",
+			SendRecv, true},
+		{"other stream ignored", offer + "m=video 5000 RTP/AVP 96\r\na=inactive\r\n", SendRecv, true},
+	}
+	for _, c := range cases {
+		m, err := Parse([]byte(c.body))
+		if err != nil {
+			t.Fatal(c.name, err)
+		}
+		if m.Direction != c.dir || m.Sends() != c.sends {
+			t.Errorf("%s: direction %q sends %v, want %q %v", c.name, m.Direction, m.Sends(), c.dir, c.sends)
+		}
+	}
+}
+
+func TestAnswerDirection(t *testing.T) {
+	for offer, want := range map[string]string{SendRecv: SendRecv, SendOnly: RecvOnly, RecvOnly: SendOnly,
+		Inactive: Inactive, "": SendRecv} {
+		if got := AnswerDirection(offer); got != want {
+			t.Errorf("answer to %q = %q, want %q", offer, got, want)
+		}
+	}
+}
+
+func TestWithDirectionBumpsTheVersion(t *testing.T) {
+	body := Write("127.0.0.1", 5004, 0, "PCMU/8000", 101)
+	held := WithDirection(body, Inactive)
+	m, err := Parse(held)
+	if err != nil || m.Direction != Inactive || m.Port != 5004 {
+		t.Fatalf("held %+v %v", m, err)
+	}
+	if strings.Count(string(held), "a=inactive") != 1 || strings.Contains(string(held), "a=sendrecv") {
+		t.Fatalf("held body:\n%s", held)
+	}
+	version := func(b []byte) string {
+		for _, l := range strings.Split(string(b), "\r\n") {
+			if strings.HasPrefix(l, "o=") {
+				return strings.Fields(l)[2]
+			}
+		}
+		return ""
+	}
+	v0, v1 := version(body), version(held)
+	if v0 == v1 || v1 == "" {
+		t.Fatalf("o= version %s then %s", v0, v1)
+	}
+	if m, _ := Parse(WithDirection(held, SendRecv)); m.Direction != SendRecv {
+		t.Fatalf("resumed direction %q", m.Direction)
+	}
+}

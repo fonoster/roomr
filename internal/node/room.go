@@ -56,6 +56,12 @@ type Participant struct {
 	stopped atomic.Bool
 	// since is when the participant joined (media timeouts count from it at the earliest).
 	since time.Time
+	// holdMu guards heldAt and resumedAt. heldAt is when the remote's SDP said it stopped
+	// sending (zero while it sends); resumedAt is when an offer last restored sending, so the
+	// media timeout counts from then at the earliest.
+	holdMu    sync.Mutex
+	heldAt    time.Time
+	resumedAt time.Time
 	// srtpKey is the node's SDES key on an encrypted leg ("" for plain RTP); cryptoTag answers
 	// the offer's a=crypto tag.
 	srtpKey   string
@@ -85,13 +91,46 @@ func (p *Participant) tracks() []Event {
 	return []Event{{"track_id": p.TrackID, "kind": "audio", "codec": p.Codec}}
 }
 
-// silentFor is how long the participant has sent no RTP (counted from when it joined at most).
+// silentFor is how long the participant has sent no RTP (counted from when it joined, or from
+// when it came off hold, at most). A participant whose SDP says it is not sending is not silent:
+// its media timeout is paused (roomr, "A silent leg ends the call").
 func (p *Participant) silentFor(now time.Time) time.Duration {
+	p.holdMu.Lock()
+	held, resumed := !p.heldAt.IsZero(), p.resumedAt
+	p.holdMu.Unlock()
+	if held {
+		return 0
+	}
 	last := p.endpoint.LastPacketAt()
-	if p.since.After(last) {
-		last = p.since
+	for _, t := range []time.Time{p.since, resumed} {
+		if t.After(last) {
+			last = t
+		}
 	}
 	return now.Sub(last)
+}
+
+// heldFor is how long the participant's SDP has said it is not sending (0 while it sends).
+func (p *Participant) heldFor(now time.Time) time.Duration {
+	p.holdMu.Lock()
+	defer p.holdMu.Unlock()
+	if p.heldAt.IsZero() {
+		return 0
+	}
+	return now.Sub(p.heldAt)
+}
+
+// setSending records the direction of the remote's latest offer: not sending starts a hold,
+// sending ends it and restarts the media timeout's count.
+func (p *Participant) setSending(sending bool, now time.Time) {
+	p.holdMu.Lock()
+	defer p.holdMu.Unlock()
+	switch {
+	case !sending && p.heldAt.IsZero():
+		p.heldAt = now
+	case sending && !p.heldAt.IsZero():
+		p.heldAt, p.resumedAt = time.Time{}, now
+	}
 }
 
 func (p *Participant) push(pkt *rtp.Packet) { p.jb.Push(pkt) }
@@ -297,6 +336,9 @@ func (r *Room) servePhone(p *Participant) {
 				p.infoSeen.Store(true)
 				r.reportDTMF(p, d, SourceSIPInfo)
 			})
+		}
+		if src, ok := leg.(SendingSource); ok {
+			src.OnSending(func(sending bool) { p.setSending(sending, time.Now()) })
 		}
 	}
 	go p.endpoint.Serve(rtpio.Handlers{

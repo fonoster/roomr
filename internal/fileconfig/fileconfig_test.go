@@ -194,6 +194,7 @@ maxRooms: 200
 maxParticipants: 10
 maxDuration: 4h
 mediaTimeout: 15s
+mediaHoldTimeout: 10m
 readyTimeout: 10s
 emptyRoomTimeout: 30s
 drainWait: 1h
@@ -207,7 +208,7 @@ telemetry:
 		t.Fatal(err)
 	}
 	if f.SessionEndpoint != "appbridge.fonoster:50071" || f.SIP.RoomHeader != "X-Room-Ref" || f.MaxRooms != 200 ||
-		f.MediaTimeout != Duration(15*time.Second) || f.Region != "us-east" || len(f.Codecs) != 4 {
+		f.MediaTimeout != Duration(15*time.Second) || f.MediaHoldTimeout != Duration(10*time.Minute) || f.Region != "us-east" || len(f.Codecs) != 4 {
 		t.Fatalf("unexpected %+v", f)
 	}
 }

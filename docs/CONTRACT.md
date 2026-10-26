@@ -95,7 +95,7 @@ a **new connection for every call** to the session endpoint (`sessionEndpoint`, 
 ### `Ended.cause`
 
 `caller_hangup`, `callee_hangup`, `busy`, `no_answer`, `rejected`, `media_timeout` (the caller leg
-went silent), `node_error`, `max_duration`, `removed` (EndCall or EndRoom), `app_gone` (the app leg
+went silent, or stayed on hold past `mediaHoldTimeout`), `node_error`, `max_duration`, `removed` (EndCall or EndRoom), `app_gone` (the app leg
 went silent or the stream broke). `sip_status` is set when SIP gave one.
 
 ## Media

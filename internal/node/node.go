@@ -36,6 +36,10 @@ type Config struct {
 	// MediaTimeout ends an answered call whose caller or app leg sent no RTP for this long
 	// (15 s): media_timeout for the caller's leg, app_gone for the app's.
 	MediaTimeout time.Duration
+	// MediaHoldTimeout ends an answered call whose SIP leg has been on hold (its SDP says it
+	// sends no RTP: a=inactive or a=recvonly) for this long, with media_timeout. 0, the
+	// default, never ends a held call; the media timeout is paused while the leg is held.
+	MediaHoldTimeout time.Duration
 	// MaxDuration ends any call that runs this long (4 h); CreateCall and Answer can lower it.
 	MaxDuration time.Duration
 	// MaxParticipants per room (10); CreateRoom can override it per room.

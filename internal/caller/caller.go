@@ -174,6 +174,8 @@ type Call struct {
 	pending   []audio.Frame
 	// muted: the call sends no RTP at all (a silent leg, for media timeouts).
 	muted bool
+	// local is the SDP of the bot's last in-dialog offer (nil: the INVITE's).
+	local []byte
 	// spokeUntil is when the last queued frame went out (zero while speaking or before any).
 	spokeUntil time.Time
 	// heardPCM keeps what the caller heard (up to maxHeardFrames), for transcribing replies.
@@ -755,6 +757,44 @@ func (c *Call) remoteContact() sip.Uri {
 		return h.Address
 	}
 	return c.session.InviteRequest.Recipient
+}
+
+// Reoffer sends an in-dialog offer (sip.INVITE, a re-INVITE, or sip.UPDATE) on a call the bot
+// placed: its own SDP with the direction set to dir ("inactive" or "recvonly" holds the call,
+// "sendrecv" resumes it). It ACKs a 2xx re-INVITE and returns the final status and the
+// direction of the answer. The bot's RTP is unchanged; SetImpair stops it.
+func (c *Call) Reoffer(method sip.RequestMethod, dir string) (int, string, error) {
+	if c.session == nil {
+		return 0, "", fmt.Errorf("reoffer: not a call the bot placed")
+	}
+	c.mu.Lock()
+	if c.local == nil {
+		c.local = c.session.InviteRequest.Body()
+	}
+	c.local = sdp.WithDirection(c.local, dir)
+	body := c.local
+	c.mu.Unlock()
+	req := sip.NewRequest(method, c.remoteContact())
+	req.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
+	req.SetBody(body)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	res, err := c.session.Do(ctx, req)
+	if err != nil {
+		return 0, "", err
+	}
+	if method == sip.INVITE && res.IsSuccess() {
+		ack := sip.NewRequest(sip.ACK, c.remoteContact())
+		ack.AppendHeader(&sip.CSeqHeader{SeqNo: res.CSeq().SeqNo, MethodName: sip.ACK})
+		if err := c.session.WriteRequest(ack); err != nil {
+			return 0, "", err
+		}
+	}
+	answer := ""
+	if m, err := sdp.Parse(res.Body()); err == nil {
+		answer = m.Direction
+	}
+	return int(res.StatusCode), answer, nil
 }
 
 // SetImpair applies network impairment to what this call sends (load harness and tests).

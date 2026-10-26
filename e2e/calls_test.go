@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/emiago/sipgo/sip"
 	roomrv1 "github.com/fonoster/roomr/api/roomr/v1"
 	sessionv1 "github.com/fonoster/roomr/api/session/v1"
 	"github.com/fonoster/roomr/internal/audio"
@@ -574,6 +575,83 @@ func TestROM036_CallerStopsSendingAudio(t *testing.T) {
 		t.Fatalf("Ended = %v", e)
 	}
 	r.waitEvent(typed("call.ended", "call_ref", ac.start.GetCallRef(), "cause", "media_timeout"), 2*time.Second)
+}
+
+// holdRig is a rig with a short media timeout and an answered call whose caller is silent from
+// now on.
+func holdRig(t *testing.T, hold time.Duration) (*rig, *caller.Call, *appCall) {
+	t.Helper()
+	r := startWith(t, rigOptions{nodeCfg: func(c *node.Config) {
+		c.MediaTimeout, c.MediaHoldTimeout = 1500*time.Millisecond, hold
+	}})
+	call, ac := r.answeredCall()
+	return r, call, ac
+}
+
+// reoffer sends the caller's in-dialog offer and checks the node's 200 mirrors its direction.
+func reoffer(t *testing.T, call *caller.Call, method sip.RequestMethod, dir, wantAnswer string) {
+	t.Helper()
+	status, answer, err := call.Reoffer(method, dir)
+	if err != nil || status != 200 || answer != wantAnswer {
+		t.Fatalf("%s %s: status %d answer %q err %v", method, dir, status, answer, err)
+	}
+}
+
+// TestROM036_CallerOnHold: a caller re-INVITE with a=inactive, then silence, keeps the call up
+// past the media timeout; a re-INVITE back to sendrecv applies the timeout again.
+func TestROM036_CallerOnHold(t *testing.T) {
+	r, call, ac := holdRig(t, 0)
+	reoffer(t, call, sip.INVITE, "inactive", "inactive")
+	call.SetImpair(func() (int, time.Duration) { return 0, 0 })
+	time.Sleep(3500 * time.Millisecond) // more than twice the media timeout
+	if s := call.Status(); s.State != "answered" {
+		t.Fatalf("held call state %q", s.State)
+	}
+	if ev := r.find(typed("call.ended", "call_ref", ac.start.GetCallRef())); ev != nil {
+		t.Fatalf("held call ended: %v", ev)
+	}
+	reoffer(t, call, sip.INVITE, "sendrecv", "sendrecv")
+	if e := ac.ended(t, 5*time.Second); e.GetCause() != "media_timeout" {
+		t.Fatalf("Ended = %v", e)
+	}
+}
+
+// TestROM036_CallerOnHoldByUpdate: an UPDATE with a=recvonly holds the call like a re-INVITE.
+func TestROM036_CallerOnHoldByUpdate(t *testing.T) {
+	r, call, ac := holdRig(t, 0)
+	reoffer(t, call, sip.UPDATE, "recvonly", "sendonly")
+	call.SetImpair(func() (int, time.Duration) { return 0, 0 })
+	time.Sleep(3500 * time.Millisecond)
+	if ev := r.find(typed("call.ended", "call_ref", ac.start.GetCallRef())); ev != nil {
+		t.Fatalf("held call ended: %v", ev)
+	}
+	_ = call.Hangup()
+}
+
+// TestROM036_CallerSendOnlyKeepsTheTimer: a caller whose offer says sendonly still sends (music
+// on hold), so its silence ends the call after the media timeout.
+func TestROM036_CallerSendOnlyKeepsTheTimer(t *testing.T) {
+	_, call, ac := holdRig(t, 0)
+	reoffer(t, call, sip.INVITE, "sendonly", "recvonly")
+	call.SetImpair(func() (int, time.Duration) { return 0, 0 })
+	if e := ac.ended(t, 5*time.Second); e.GetCause() != "media_timeout" {
+		t.Fatalf("Ended = %v", e)
+	}
+}
+
+// TestROM036_MediaHoldTimeout: with mediaHoldTimeout set, a call held that long ends with
+// media_timeout.
+func TestROM036_MediaHoldTimeout(t *testing.T) {
+	_, call, ac := holdRig(t, 3*time.Second)
+	reoffer(t, call, sip.INVITE, "inactive", "inactive")
+	call.SetImpair(func() (int, time.Duration) { return 0, 0 })
+	start := time.Now()
+	if e := ac.ended(t, 8*time.Second); e.GetCause() != "media_timeout" {
+		t.Fatalf("Ended = %v", e)
+	}
+	if held := time.Since(start); held < 2500*time.Millisecond {
+		t.Fatalf("ended after %v on hold, before the hold timeout", held)
+	}
 }
 
 // TestROM006_NoAudioOnTheStream: a call that runs a while carries no audio on its control stream.

@@ -39,7 +39,8 @@ for passwords and TLS PEM settings.
 | `sessionTls.{ca,cert,key}` | off | TLS on the control streams; `cert`/`key` for mutual TLS |
 | `maxRooms`, `maxParticipants` | 200, 10 | `CreateRoom` can override `maxParticipants` |
 | `maxDuration` | 4h | `CreateCall` and `Answer` can lower it per call |
-| `mediaTimeout` | 15s | caller leg silent: `media_timeout`; app leg silent: `app_gone` |
+| `mediaTimeout` | 15s | caller leg silent: `media_timeout`; app leg silent: `app_gone`. Paused while the caller's SDP says it is on hold (`a=inactive` or `a=recvonly` in a re-INVITE or UPDATE) |
+| `mediaHoldTimeout` | 0 (never) | caller leg on hold this long: `media_timeout` |
 | `answerTimeout`, `readyTimeout` | 10s, 10s | no `Answer` (inbound: 480) / no `Ready` (outbound: BYE, `app_gone`) |
 | `emptyRoomTimeout` | 30s (negative: never) | `CreateRoom` can override it |
 | `drainWait`, `heartbeatInterval`, `reregisterDelta` | 1h, 2s, 5 | |
