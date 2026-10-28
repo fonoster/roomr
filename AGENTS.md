@@ -37,3 +37,44 @@ Opus is cgo (libopus). `CGO_ENABLED=0` builds without it.
 - Go: `gofmt`, `go vet`, errors wrapped with context, no global state in `internal/node`.
 - Commits and PR titles are conventional commits (`feat(node): ...`); PRs are squash merged.
 - Keep comments to the non-obvious why, and cite the spec requirement they implement.
+
+## Areas
+
+| Area label | Paths | Experts |
+| :--- | :--- | :--- |
+| (none) | internal/sipua, internal/sdp, internal/sipheader, internal/edgetls, internal/rtpio, internal/jitter, internal/audio, internal/dtmf, internal/caller, internal/node | realtime-comms-engineer, performance-engineer |
+| (none) | api/, internal/control, js/ | release-engineer |
+| (none) | charts/, Dockerfile, .github/workflows, release-please-config.json | release-engineer, security-engineer |
+
+## Labels
+These are the only labels; any other is deleted. An issue's kind is its native issue type (Bug,
+Feature, Task), not a label. Close as "not planned" or "duplicate" instead of labeling.
+
+| Label | Meaning | Applied by |
+| :--- | :--- | :--- |
+| needs-triage | Filed, not yet shaped | Issue forms |
+| needs-info | Waiting on the reporter | /ps:report |
+| ready | Plan approved; agents may implement | A maintainer |
+| not-ready | The implementer refused; see its comment | /ps:implement |
+| blocked | An agent stopped on a blocker | Any ps skill |
+| needs-human | A loop limit was hit or a decision needs a maintainer | Any ps skill |
+| needs-issue | A pull request with no linked issue | require-linked-issue workflow |
+| breaking | Needs a major bump or a migration note | /ps:report |
+| risk: high | A maintainer reviews the plan before work starts | /ps:report |
+| external | Opened by someone outside the org | label-external workflow |
+| good first issue | A ready issue a newcomer can take | A maintainer |
+| dependencies | Dependency update | Dependabot |
+| autorelease: pending | Release PR not yet tagged | release-please |
+| autorelease: tagged | Release PR tagged and released | release-please |
+
+No `area:` labels: every row of `## Areas` is `(none)`.
+
+## Release
+
+release-please opens a `chore(main): release X.Y.Z` PR; merging it tags the release and publishes the
+images, npm package, Helm chart and protos. Never add or remove the `autorelease:*` labels by hand:
+release-please finds its release PR by them. Merge other PRs one at a time while a release PR is open.
+
+## Decisions
+
+- 2026-10-28: One label standard across fonoster, routr and roomr (`## Labels`); kinds are native issue types.
