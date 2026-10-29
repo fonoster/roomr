@@ -6,7 +6,7 @@ require (
 	github.com/emiago/sipgo v1.6.0
 	github.com/gotranspile/g722 v0.0.0-20240123003956-384a1bb16a19
 	github.com/icholy/digest v1.2.0
-	github.com/nats-io/nats.go v1.54.0
+	github.com/nats-io/nats.go v1.55.0
 	github.com/pion/rtp v1.10.5
 	github.com/pion/srtp/v3 v3.1.3
 	go.opentelemetry.io/contrib/bridges/otelslog v0.21.0
