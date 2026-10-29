@@ -147,7 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - name: Lint and render (host network, then pod network with the policy)
         run: |
           helm lint charts/roomr --set config.sessionEndpoint=app:50070
