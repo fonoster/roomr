@@ -73,12 +73,44 @@ type UA struct {
 	tcp net.Listener
 }
 
-// sharedPortDialer dials TCP and TLS from the listening port (WithClientConnectionAddr): a
-// registrar stores a REGISTER's source address as the route (Routr), so every REGISTER must come
-// from the same address and that address must take INVITEs. SO_REUSEPORT on the listener and
-// the dialer lets the two sockets share the port.
-func sharedPortDialer(laddr net.Addr) net.Dialer {
-	return net.Dialer{Timeout: time.Minute, LocalAddr: laddr, Control: reusePort}
+// sharedPortDialer dials TCP and TLS from the listen address (its host, 0.0.0.0 for a wildcard,
+// and its port): a registrar stores a REGISTER's source address as the route (Routr), so every
+// REGISTER must come from the same address and that address must take INVITEs. SO_REUSEPORT on
+// the listener and the dialer lets the two sockets share the port.
+func sharedPortDialer(listen net.Addr) func(net.Addr) net.Dialer {
+	return func(laddr net.Addr) net.Dialer {
+		// sipgo passes a typed-nil *net.TCPAddr when the request names no local address.
+		if a, ok := laddr.(*net.TCPAddr); laddr == nil || (ok && a == nil) {
+			laddr = listen
+		}
+		return net.Dialer{Timeout: time.Minute, LocalAddr: laddr, Control: reusePort}
+	}
+}
+
+// listenRequester sends the client's requests (sipgo's Client.TxRequester) from the listen port
+// (ROM-033). UDP requests and ACKs name the UDP listening socket as their local address; without
+// it sipgo opens an ephemeral socket. TCP and TLS requests name none, so sipgo finds the peer's
+// connection by its remote address: it pools a connection under its real local address, so a
+// wildcard local address never matches, and re-dialing the same 4-tuple fails.
+type listenRequester struct {
+	ua  *sipgo.UserAgent
+	udp sip.Addr
+}
+
+func (r *listenRequester) Request(ctx context.Context, req *sip.Request) (sip.ClientTransaction, error) {
+	if strings.EqualFold(req.Transport(), "UDP") {
+		r.udp.Copy(&req.Laddr)
+	}
+	// The client hands ACKs (2xx retransmissions too) to its TxRequester, but the transaction
+	// layer refuses them: they go straight to the transport.
+	if req.IsAck() {
+		return nil, r.ua.TransportLayer().WriteMsg(req)
+	}
+	tx, err := r.ua.TransactionLayer().Request(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
 }
 
 // New wires a SIP user agent to the node.
@@ -89,26 +121,6 @@ func New(n *node.Node, cfg Config) (*UA, error) {
 	if cfg.ReregisterDelta <= 0 {
 		cfg.ReregisterDelta = 5
 	}
-	opts := []sipgo.UserAgentOption{sipgo.WithUserAgent("fonoster-roomr"),
-		sipgo.WithUserAgentTransportLayerOptions(sip.WithTransportLayerTransports(sip.TransportsConfig{
-			TCP: &sip.TransportTCP{DialerCreate: sharedPortDialer},
-			TLS: &sip.TransportTLS{TransportTCP: &sip.TransportTCP{DialerCreate: sharedPortDialer}},
-		}))}
-	if cfg.ClientTLS != nil {
-		opts = append(opts, sipgo.WithUserAgenTLSConfig(cfg.ClientTLS))
-	}
-	ua, err := sipgo.NewUA(opts...)
-	if err != nil {
-		return nil, err
-	}
-	srv, err := sipgo.NewServer(ua)
-	if err != nil {
-		return nil, err
-	}
-	// rport (RFC 3581) and requests sent from the listening port: Routr stores the REGISTER's
-	// source address and port as the route, so INVITEs must be able to come back to it, behind NAT
-	// (Docker for Mac, cloud load balancers) as well as without it (CO-B2).
-	clientOpts := []sipgo.ClientOption{sipgo.WithClientHostname(cfg.AdvertiseHost), sipgo.WithClientNAT()}
 	udp, err := net.ListenPacket("udp4", cfg.Listen)
 	if err != nil {
 		return nil, err
@@ -118,11 +130,44 @@ func New(n *node.Node, cfg Config) (*UA, error) {
 		_ = udp.Close()
 		return nil, err
 	}
-	clientOpts = append(clientOpts, sipgo.WithClientConnectionAddr(udp.LocalAddr().String()))
-	client, err := sipgo.NewClient(ua, clientOpts...)
+	closeListeners := func() {
+		_ = udp.Close()
+		_ = tcp.Close()
+	}
+	dialer := sharedPortDialer(tcp.Addr())
+	opts := []sipgo.UserAgentOption{sipgo.WithUserAgent("fonoster-roomr"),
+		sipgo.WithUserAgentTransportLayerOptions(sip.WithTransportLayerTransports(sip.TransportsConfig{
+			TCP: &sip.TransportTCP{DialerCreate: dialer},
+			TLS: &sip.TransportTLS{TransportTCP: &sip.TransportTCP{DialerCreate: dialer}},
+		}))}
+	if cfg.ClientTLS != nil {
+		opts = append(opts, sipgo.WithUserAgenTLSConfig(cfg.ClientTLS))
+	}
+	ua, err := sipgo.NewUA(opts...)
 	if err != nil {
+		closeListeners()
 		return nil, err
 	}
+	srv, err := sipgo.NewServer(ua)
+	if err != nil {
+		closeListeners()
+		return nil, err
+	}
+	// rport (RFC 3581) and requests sent from the listening port: Routr stores the REGISTER's
+	// source address and port as the route, so INVITEs must be able to come back to it, behind NAT
+	// (Docker for Mac, cloud load balancers) as well as without it (CO-B2).
+	client, err := sipgo.NewClient(ua, sipgo.WithClientHostname(cfg.AdvertiseHost), sipgo.WithClientNAT())
+	if err != nil {
+		closeListeners()
+		return nil, err
+	}
+	udpHost, udpPort, err := sip.ParseAddr(udp.LocalAddr().String())
+	if err != nil {
+		closeListeners()
+		return nil, err
+	}
+	client.TxRequester = &listenRequester{ua: ua,
+		udp: sip.Addr{IP: net.ParseIP(udpHost), Port: udpPort, Hostname: udpHost}}
 	contact := sip.ContactHeader{Address: sip.Uri{User: "roomr", Host: cfg.AdvertiseHost, Port: cfg.AdvertisePort}}
 	u := &UA{cfg: cfg, node: n, ua: ua, srv: srv, client: client, udp: udp, tcp: tcp,
 		dialogs: sipgo.NewDialogServerCache(client, contact), out: sipgo.NewDialogClientCache(client, contact)}
