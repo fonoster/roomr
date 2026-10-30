@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/fonoster/roomr/compare/v0.3.1...v0.3.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **sipua:** wait for the UDP listener before sending UDP requests and REGISTERs ([#66](https://github.com/fonoster/roomr/issues/66)) ([68b87c6](https://github.com/fonoster/roomr/commit/68b87c6a1f0f8fd5e5154b3da89b690bcd4b6140)), closes [#64](https://github.com/fonoster/roomr/issues/64)
+
 ## [0.3.1](https://github.com/fonoster/roomr/compare/v0.3.0...v0.3.1) (2026-10-30)
 
 
