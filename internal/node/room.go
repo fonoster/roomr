@@ -56,6 +56,15 @@ type Participant struct {
 	stopped atomic.Bool
 	// since is when the participant joined (media timeouts count from it at the earliest).
 	since time.Time
+	// holdMu guards held and changedAt. held: the remote's latest offer puts the leg on hold
+	// (a=inactive, a=recvonly, a=sendonly or c=0.0.0.0). changedAt is when an offer last switched
+	// the leg between held and active: its silence counts from then at the earliest.
+	holdMu    sync.Mutex
+	held      bool
+	changedAt time.Time
+	// paused: the remote's latest offer says it wants no RTP (a=inactive or a=sendonly), and
+	// the node answered so: the room sends the leg nothing until an offer asks for it again.
+	paused atomic.Bool
 	// srtpKey is the node's SDES key on an encrypted leg ("" for plain RTP); cryptoTag answers
 	// the offer's a=crypto tag.
 	srtpKey   string
@@ -85,13 +94,57 @@ func (p *Participant) tracks() []Event {
 	return []Event{{"track_id": p.TrackID, "kind": "audio", "codec": p.Codec}}
 }
 
-// silentFor is how long the participant has sent no RTP (counted from when it joined at most).
+// silentFor is how long an active participant has sent no RTP (see quiet). A held one is not
+// silent: its media timeout is paused (roomr, "A silent leg ends the call").
 func (p *Participant) silentFor(now time.Time) time.Duration {
-	last := p.endpoint.LastPacketAt()
-	if p.since.After(last) {
-		last = p.since
+	held, quiet := p.quiet(now)
+	if held {
+		return 0
 	}
-	return now.Sub(last)
+	return quiet
+}
+
+// heldSilentFor is how long a held participant has sent no RTP (see quiet); 0 while it is active.
+// The media hold timeout bounds it, so a held peer that keeps sending (music on hold) never ends.
+func (p *Participant) heldSilentFor(now time.Time) time.Duration {
+	held, quiet := p.quiet(now)
+	if !held {
+		return 0
+	}
+	return quiet
+}
+
+// quiet reports whether the participant is held, and how long it has sent no RTP: counted from
+// its last packet, when it joined, or the offer that last put it on or off hold, whichever is
+// latest.
+func (p *Participant) quiet(now time.Time) (bool, time.Duration) {
+	p.holdMu.Lock()
+	held, changed := p.held, p.changedAt
+	p.holdMu.Unlock()
+	last := p.endpoint.LastPacketAt()
+	for _, t := range []time.Time{p.since, changed} {
+		if t.After(last) {
+			last = t
+		}
+	}
+	return held, now.Sub(last)
+}
+
+// setDirection applies the direction of the remote's latest offer: a leg that sends or receives
+// no RTP is held (setSending), and one that receives none is sent nothing by the room.
+func (p *Participant) setDirection(sends, receives bool, now time.Time) {
+	p.setSending(sends && receives, now)
+	p.paused.Store(!receives)
+}
+
+// setSending records whether the leg is active: a switch between held and active restarts the
+// count of its silence.
+func (p *Participant) setSending(active bool, now time.Time) {
+	p.holdMu.Lock()
+	defer p.holdMu.Unlock()
+	if p.held == active {
+		p.held, p.changedAt = !active, now
+	}
 }
 
 func (p *Participant) push(pkt *rtp.Packet) { p.jb.Push(pkt) }
@@ -297,6 +350,9 @@ func (r *Room) servePhone(p *Participant) {
 				p.infoSeen.Store(true)
 				r.reportDTMF(p, d, SourceSIPInfo)
 			})
+		}
+		if src, ok := leg.(DirectionSource); ok {
+			src.OnDirection(func(sends, receives bool) { p.setDirection(sends, receives, time.Now()) })
 		}
 	}
 	go p.endpoint.Serve(rtpio.Handlers{
@@ -618,8 +674,8 @@ func (r *Room) tick() {
 		if p.Kind == KindPhone && !p.answered.Load() {
 			continue // no early media
 		}
-		if p.stopped.Load() {
-			continue
+		if p.stopped.Load() || p.paused.Load() {
+			continue // stopped, or on hold and answered as not receiving
 		}
 		if out, held := music[p.Ref]; held {
 			if out == nil {

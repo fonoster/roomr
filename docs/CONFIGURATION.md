@@ -39,7 +39,8 @@ for passwords and TLS PEM settings.
 | `sessionTls.{ca,cert,key}` | off | TLS on the control streams; `cert`/`key` for mutual TLS |
 | `maxRooms`, `maxParticipants` | 200, 10 | `CreateRoom` can override `maxParticipants` |
 | `maxDuration` | 4h | `CreateCall` and `Answer` can lower it per call |
-| `mediaTimeout` | 15s | caller leg silent: `media_timeout`; app leg silent: `app_gone` |
+| `mediaTimeout` | 15s | caller leg silent: `media_timeout`; app leg silent: `app_gone`. Paused while a phone leg (inbound or dialed) is held, meaning `a=inactive`, `a=recvonly`, `a=sendonly` or `c=0.0.0.0` in a re-INVITE or UPDATE; `mediaHoldTimeout` applies instead |
+| `mediaHoldTimeout` | 30m (negative: never) | held leg with no RTP for this long: `media_timeout`. Not a cap on total hold time: a held peer that keeps sending RTP (music on hold) is never ended |
 | `answerTimeout`, `readyTimeout` | 10s, 10s | no `Answer` (inbound: 480) / no `Ready` (outbound: BYE, `app_gone`) |
 | `emptyRoomTimeout` | 30s (negative: never) | `CreateRoom` can override it |
 | `drainWait`, `heartbeatInterval`, `reregisterDelta` | 1h, 2s, 5 | |

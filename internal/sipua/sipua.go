@@ -61,9 +61,14 @@ type UA struct {
 	// without a TLS listener).
 	dialogsTLS *sipgo.DialogServerCache
 	out        *sipgo.DialogClientCache
-	regs       []*registration
+	// contact and tlsContact go in the node's answers to in-dialog offers.
+	contact, tlsContact sip.ContactHeader
+	regs                []*registration
 	// legs by dialog ID (Call-ID plus both tags), for SIP INFO keypresses.
 	legs sync.Map
+	// dialing holds the Call-IDs of INVITEs the node sent that are not answered yet: an
+	// in-dialog offer in their early dialog is answered 500 with Retry-After, not 481.
+	dialing sync.Map
 	// openDialogs counts INVITE dialogs in the server dialog cache (leak check, RV-B9).
 	openDialogs atomic.Int64
 	// udp is the UDP listening socket, bound in New so requests can go out from it.
@@ -188,7 +193,7 @@ func New(n *node.Node, cfg Config) (*UA, error) {
 	client.TxRequester = &listenRequester{ua: ua, ready: ready,
 		udp: sip.Addr{IP: net.ParseIP(udpHost), Port: udpPort, Hostname: udpHost}}
 	contact := sip.ContactHeader{Address: sip.Uri{User: "roomr", Host: cfg.AdvertiseHost, Port: cfg.AdvertisePort}}
-	u := &UA{cfg: cfg, node: n, ua: ua, srv: srv, client: client, udp: udp, tcp: tcp, ready: ready,
+	u := &UA{cfg: cfg, node: n, ua: ua, srv: srv, client: client, udp: udp, tcp: tcp, ready: ready, contact: contact,
 		dialogs: sipgo.NewDialogServerCache(client, contact), out: sipgo.NewDialogClientCache(client, contact)}
 	for _, r := range cfg.Registrations {
 		reg, err := newRegistration(r)
@@ -204,9 +209,12 @@ func New(n *node.Node, cfg Config) (*UA, error) {
 		params.Add("transport", "tls")
 		tlsContact := sip.ContactHeader{Address: sip.Uri{User: "roomr", Host: cfg.AdvertiseHost, Port: port, UriParams: params}}
 		u.dialogsTLS = sipgo.NewDialogServerCache(client, tlsContact)
+		u.tlsContact = tlsContact
 	}
 	srv.OnInvite(u.guard(u.onInvite))
+	srv.OnRequest(sip.UPDATE, u.guard(u.onOffer))
 	srv.OnAck(u.guard(func(req *sip.Request, tx sip.ServerTransaction) {
+		u.onAckInDialog(req)
 		if u.dialogsTLS != nil && u.dialogsTLS.ReadAck(req, tx) == nil {
 			return
 		}
@@ -335,6 +343,10 @@ func respondSafely(req *sip.Request, tx sip.ServerTransaction, status int, reaso
 }
 
 func (u *UA) onInvite(req *sip.Request, tx sip.ServerTransaction) {
+	if to := req.To(); to != nil && to.Params != nil && to.Params.Has("tag") {
+		u.onOffer(req, tx) // a re-INVITE
+		return
+	}
 	media, err := sdp.Parse(req.Body())
 	if err != nil {
 		_ = tx.Respond(sip.NewResponseFromRequest(req, 488, "Not Acceptable Here", nil))
@@ -363,7 +375,7 @@ func (u *UA) onInvite(req *sip.Request, tx sip.ServerTransaction) {
 	}()
 	_ = dlg.Respond(100, "Trying", nil)
 
-	leg := &inviteLeg{dlg: dlg, final: make(chan int, 1)}
+	leg := &inviteLeg{dlg: dlg, final: make(chan int, 1), offer: media}
 	legID := dlg.ID
 	u.legs.Store(legID, leg)
 	go func() {
@@ -418,7 +430,10 @@ type inviteLeg struct {
 	dlg   *sipgo.DialogServerSession
 	final chan int
 	once  sync.Once
+	// offer is the INVITE's SDP (the setup of in-dialog offers, on Answer).
+	offer sdp.Media
 	dtmf
+	inDialog
 }
 
 // dtmf holds a leg's SIP INFO keypress handler (node.DTMFSource).
@@ -520,6 +535,7 @@ func (l *inviteLeg) Ring() error { return l.dlg.Respond(180, "Ringing", nil) }
 func (l *inviteLeg) Gone() <-chan struct{} { return l.dlg.Context().Done() }
 
 func (l *inviteLeg) Answer(body []byte) error {
+	l.setupInbound(body, l.offer)
 	err := l.dlg.RespondSDP(body)
 	l.finish(200)
 	return err
@@ -625,6 +641,7 @@ func (u *UA) awaitAnswer(ctx context.Context, session *sipgo.DialogClientSession
 		return nil, nil, err
 	}
 	leg := &outLeg{session: session}
+	leg.setupDialed(session.InviteRequest.Body(), session.InviteResponse.Body())
 	legID := session.ID
 	u.legs.Store(legID, leg)
 	go func() {
@@ -720,6 +737,10 @@ func (u *UA) DialTarget(ctx context.Context, t node.SipTarget, from string, offe
 	if err != nil {
 		return nil, nil, err
 	}
+	if id := req.CallID(); id != nil {
+		u.dialing.Store(id.Value(), struct{}{})
+		defer u.dialing.Delete(id.Value())
+	}
 	return u.awaitAnswer(ctx, session, t.Username, t.Password, onProgress)
 }
 
@@ -733,6 +754,7 @@ func orDefault(s, d string) string {
 type outLeg struct {
 	session *sipgo.DialogClientSession
 	dtmf
+	inDialog
 }
 
 func (l *outLeg) Bye() error {

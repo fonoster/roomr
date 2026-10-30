@@ -1,5 +1,5 @@
 // Package sdp reads and writes the small subset of SDP the Roomr node needs: one audio stream,
-// its address, codecs and telephone-event.
+// its address, codecs, telephone-event and direction.
 package sdp
 
 import (
@@ -23,6 +23,45 @@ type Media struct {
 	// Secure is true for an RTP/SAVP stream; Crypto lists its SDES keys (RFC 4568).
 	Secure bool
 	Crypto []Crypto
+	// Direction is the stream's a=sendrecv, sendonly, recvonly or inactive as the writer means
+	// it (media level over session level); SendRecv when absent (RFC 4566), Inactive when c= is
+	// ZeroAddress.
+	Direction string
+	// SessionID and SessionVersion are the o= line's (0 when absent or not numbers).
+	SessionID, SessionVersion uint64
+}
+
+// The SDP direction attributes (RFC 3264 section 6.1).
+const (
+	SendRecv = "sendrecv"
+	SendOnly = "sendonly"
+	RecvOnly = "recvonly"
+	Inactive = "inactive"
+)
+
+// ZeroAddress in c= is the old way to put a stream on hold: the writer sends and wants no RTP.
+const ZeroAddress = "0.0.0.0"
+
+// Sends reports whether the writer of the description sends RTP: sendrecv and sendonly (music
+// on hold) do, recvonly and inactive do not.
+func (m Media) Sends() bool { return m.Direction != RecvOnly && m.Direction != Inactive }
+
+// Receives reports whether the writer of the description wants RTP: sendrecv and recvonly do,
+// sendonly and inactive do not.
+func (m Media) Receives() bool { return m.Direction != SendOnly && m.Direction != Inactive }
+
+// AnswerDirection is the direction an answer takes to an offer's (RFC 3264 section 6.1): the
+// mirror of sendonly and recvonly, inactive to inactive, sendrecv otherwise.
+func AnswerDirection(offer string) string {
+	switch offer {
+	case SendOnly:
+		return RecvOnly
+	case RecvOnly:
+		return SendOnly
+	case Inactive:
+		return Inactive
+	}
+	return SendRecv
 }
 
 // Crypto is one a=crypto line: tag, suite and the inline base64 key and salt.
@@ -35,11 +74,22 @@ type Crypto struct {
 // Parse reads the first audio stream.
 func Parse(body []byte) (Media, error) {
 	m := Media{Codecs: map[int]string{}, Fmtp: map[int]string{}, DTMF: -1}
-	session := ""
-	inAudio := false
+	session, sessionDir, audioDir := "", "", ""
+	inAudio, seenMedia := false, false
 	for _, raw := range strings.Split(string(body), "\n") {
 		line := strings.TrimSpace(raw)
 		switch {
+		case isDirection(line):
+			if !seenMedia {
+				sessionDir = line[2:]
+			} else if inAudio {
+				audioDir = line[2:]
+			}
+		case strings.HasPrefix(line, "o="):
+			if f := strings.Fields(line[2:]); len(f) >= 3 {
+				m.SessionID, _ = strconv.ParseUint(f[1], 10, 64)
+				m.SessionVersion, _ = strconv.ParseUint(f[2], 10, 64)
+			}
 		case strings.HasPrefix(line, "c=IN IP4 "):
 			host := strings.TrimPrefix(line, "c=IN IP4 ")
 			if inAudio {
@@ -48,6 +98,7 @@ func Parse(body []byte) (Media, error) {
 				session = host
 			}
 		case strings.HasPrefix(line, "m="):
+			seenMedia = true
 			fields := strings.Fields(line[2:])
 			inAudio = len(fields) >= 3 && fields[0] == "audio" && m.Port == 0
 			if !inAudio {
@@ -108,6 +159,15 @@ func Parse(body []byte) (Media, error) {
 	if m.Host == "" {
 		m.Host = session
 	}
+	m.Direction = SendRecv
+	if audioDir != "" {
+		m.Direction = audioDir
+	} else if sessionDir != "" {
+		m.Direction = sessionDir
+	}
+	if m.Host == ZeroAddress {
+		m.Direction = Inactive // the RFC 2543 hold, whatever the a= line (RFC 3264 section 8.4)
+	}
 	// Static payload types may come without rtpmap.
 	for _, pt := range m.PayloadTypes {
 		if _, ok := m.Codecs[pt]; !ok {
@@ -122,6 +182,40 @@ func Parse(body []byte) (Media, error) {
 		}
 	}
 	return m, nil
+}
+
+func isDirection(line string) bool {
+	switch line {
+	case "a=" + SendRecv, "a=" + SendOnly, "a=" + RecvOnly, "a=" + Inactive:
+		return true
+	}
+	return false
+}
+
+// WithDirection is body (a description the node wrote) with its direction set to dir and its
+// o= version one higher, as a changed description must be (RFC 3264 section 8): the answer to
+// an in-dialog offer that changes direction only.
+func WithDirection(body []byte, dir string) []byte {
+	lines := strings.Split(strings.TrimRight(string(body), "\r\n"), "\r\n")
+	found := false
+	for i, line := range lines {
+		switch {
+		case isDirection(line):
+			lines[i], found = "a="+dir, true
+		case strings.HasPrefix(line, "o="):
+			fields := strings.Fields(line)
+			if len(fields) == 6 {
+				if v, err := strconv.ParseUint(fields[2], 10, 64); err == nil {
+					fields[2] = strconv.FormatUint(v+1, 10)
+					lines[i] = strings.Join(fields, " ")
+				}
+			}
+		}
+	}
+	if !found {
+		lines = append(lines, "a="+dir)
+	}
+	return []byte(strings.Join(lines, "\r\n") + "\r\n")
 }
 
 // Choose returns the first offered payload type whose codec is in supported: the remote's order
@@ -172,6 +266,12 @@ type Description struct {
 	DTMF int
 	// Crypto, when set, makes the stream RTP/SAVP with this SDES key.
 	Crypto *Crypto
+	// SessionID and SessionVersion go in the o= line; a zero SessionID means a new session (both
+	// the current time). An in-dialog answer keeps the ID and raises the version on a change
+	// (RFC 3264 section 8).
+	SessionID, SessionVersion uint64
+	// Direction is the a= direction line; "" writes sendrecv.
+	Direction string
 }
 
 // Write builds an offer or answer for one audio stream with one codec.
@@ -181,7 +281,15 @@ func Write(host string, port int, pt int, codec string, dtmf int) []byte {
 
 // WriteDescription builds an offer or answer for one audio stream.
 func WriteDescription(d Description) []byte {
-	id := time.Now().UnixNano() / 1000
+	id, version := d.SessionID, d.SessionVersion
+	if id == 0 {
+		id = uint64(time.Now().UnixNano() / 1000)
+		version = id
+	}
+	dir := d.Direction
+	if dir == "" {
+		dir = SendRecv
+	}
 	pts := []string{}
 	for _, c := range d.Codecs {
 		pts = append(pts, strconv.Itoa(c.PT))
@@ -195,7 +303,7 @@ func WriteDescription(d Description) []byte {
 	}
 	lines := []string{
 		"v=0",
-		fmt.Sprintf("o=fonoster %d %d IN IP4 %s", id, id, d.Host),
+		fmt.Sprintf("o=fonoster %d %d IN IP4 %s", id, version, d.Host),
 		"s=fonoster",
 		"c=IN IP4 " + d.Host,
 		"t=0 0",
@@ -223,6 +331,6 @@ func WriteDescription(d Description) []byte {
 		}
 		lines = append(lines, fmt.Sprintf("a=crypto:%d %s inline:%s", tag, d.Crypto.Suite, d.Crypto.Key))
 	}
-	lines = append(lines, "a=ptime:20", "a=sendrecv")
+	lines = append(lines, "a=ptime:20", "a="+dir)
 	return []byte(strings.Join(lines, "\r\n") + "\r\n")
 }
