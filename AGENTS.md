@@ -40,6 +40,29 @@ Overrides:
 - Commits and PR titles are conventional commits (`feat(node): ...`); PRs are squash merged.
 Examples: `internal/sipua/register.go`, `internal/node/room.go`, `internal/fileconfig/fileconfig.go`
 
+## Labels
+These are the only labels; any other is deleted. An issue's kind is its native issue type (Bug,
+Feature, Task), not a label. Close as "not planned" or "duplicate" instead of labeling.
+
+| Label | Meaning | Applied by |
+| :--- | :--- | :--- |
+| needs-triage | Filed, not yet shaped | Issue forms |
+| needs-info | Waiting on the reporter | /ps:report |
+| ready | Plan approved; agents may implement | A maintainer |
+| not-ready | The implementer refused; see its comment | /ps:implement |
+| blocked | An agent stopped on a blocker | Any ps skill |
+| needs-human | A loop limit was hit or a decision needs a maintainer | Any ps skill |
+| needs-issue | A pull request with no linked issue | require-linked-issue workflow |
+| breaking | Needs a major bump or a migration note | /ps:report |
+| risk: high | A maintainer reviews the plan before work starts | /ps:report |
+| external | Opened by someone outside the org | label-external workflow |
+| good first issue | A ready issue a newcomer can take | A maintainer |
+| dependencies | Dependency update | Dependabot |
+| autorelease: pending | The open release PR | release-please |
+| autorelease: tagged | A merged release PR, tagged | release-please |
+
+No `area:` labels: Roomr is one binary, and there is no `## Areas` map to route.
+
 ## Compatibility
 Breaking changes here:
 - gRPC protos (`api/roomr/v1`, `api/session/v1`): append-only. Add fields, never renumber,
