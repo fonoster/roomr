@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/fonoster/roomr/compare/v0.3.2...v0.4.0) (2026-10-30)
+
+
+### Features
+
+* **node:** pause the media timeout while a phone leg is on hold ([#45](https://github.com/fonoster/roomr/issues/45)) ([6aa23e3](https://github.com/fonoster/roomr/commit/6aa23e309675d49728a8127968b96e1923a54e54))
+
 ## [0.3.2](https://github.com/fonoster/roomr/compare/v0.3.1...v0.3.2) (2026-10-30)
 
 
