@@ -115,9 +115,9 @@ type File struct {
 	// MediaTimeout ends an answered call whose caller or app leg sends no RTP for this long
 	// (default 15s).
 	MediaTimeout Duration `yaml:"mediaTimeout"`
-	// MediaHoldTimeout ends an answered call whose SIP leg has been on hold (a=inactive or
-	// a=recvonly) this long, with media_timeout (default 0: never; the media timeout is paused
-	// while a leg is on hold).
+	// MediaHoldTimeout ends an answered call whose SIP leg is on hold (a=inactive, a=recvonly,
+	// a=sendonly or c=0.0.0.0) and sent no RTP this long, with media_timeout (default 30m;
+	// negative: never). The media timeout is paused while a leg is on hold.
 	MediaHoldTimeout Duration `yaml:"mediaHoldTimeout"`
 	// AnswerTimeout is how long the app has to Answer or Reject an inbound call before the
 	// caller gets 480 (default 10s).

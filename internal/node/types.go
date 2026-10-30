@@ -89,8 +89,9 @@ type DTMFSource interface {
 
 // DirectionSource is a SIP leg that reports the remote's media direction from in-dialog offers
 // (re-INVITE, UPDATE): sends is false while its SDP says it sends no RTP (a=inactive or
-// a=recvonly, a caller on hold), receives is false while it says it wants none (a=inactive or
-// a=sendonly). A handler registered after a report gets the last one at once.
+// a=recvonly), receives is false while it says it wants none (a=inactive or a=sendonly); both are
+// false for c=0.0.0.0. Either one false means the leg is on hold. A handler registered after a
+// report gets the last one at once.
 type DirectionSource interface {
 	OnDirection(func(sends, receives bool))
 }

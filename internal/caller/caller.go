@@ -174,7 +174,8 @@ type Call struct {
 	pending   []audio.Frame
 	// muted: the call sends no RTP at all (a silent leg, for media timeouts).
 	muted bool
-	// local is the SDP of the bot's last in-dialog offer (nil: the INVITE's).
+	// local is the SDP of the bot's last in-dialog offer, or of its 200 on a call it answered
+	// (nil: its INVITE's).
 	local []byte
 	// earlyTo and earlyContact are the To (with the callee's tag) and Contact of a provisional
 	// response to the bot's INVITE: its early dialog (EarlyUpdate).
@@ -770,16 +771,11 @@ func (c *Call) remoteContact() sip.Uri {
 }
 
 // Reoffer sends an in-dialog offer (sip.INVITE, a re-INVITE, or sip.UPDATE) on a call the bot
-// placed: its own SDP with the direction set to dir ("inactive" or "recvonly" holds the call,
-// "sendrecv" resumes it). It ACKs a 2xx re-INVITE and returns the final status and the
+// placed or answered: its own SDP with the direction set to dir ("inactive", "recvonly" or
+// "sendonly" holds the call, "sendrecv" resumes it). It ACKs a 2xx re-INVITE and returns the final status and the
 // direction of the answer. The bot's RTP is unchanged; SetImpair stops it.
 func (c *Call) Reoffer(method sip.RequestMethod, dir string) (int, string, error) {
-	c.mu.Lock()
-	if c.local == nil && c.session != nil {
-		c.local = c.session.InviteRequest.Body()
-	}
-	body := sdp.WithDirection(c.local, dir)
-	c.mu.Unlock()
+	body := sdp.WithDirection(c.LocalSDP(), dir)
 	res, _, err := c.ReofferSDP(method, body)
 	if err != nil {
 		return 0, "", err
@@ -796,7 +792,8 @@ func (c *Call) Reoffer(method sip.RequestMethod, dir string) (int, string, error
 	return int(res.StatusCode), answer, nil
 }
 
-// LocalSDP is the SDP the bot last offered on a call it placed (its INVITE's at first).
+// LocalSDP is the SDP the bot last offered on the call: at first its INVITE's on a call it
+// placed, its 200's on one it answered.
 func (c *Call) LocalSDP() []byte {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -807,11 +804,9 @@ func (c *Call) LocalSDP() []byte {
 }
 
 // ReofferSDP sends an in-dialog INVITE or UPDATE with body as its SDP (nil: none) on a call the
-// bot placed, and ACKs a 2xx re-INVITE. It returns the final response and the request sent.
+// bot placed or answered, and ACKs a 2xx re-INVITE. It returns the final response and the
+// request sent.
 func (c *Call) ReofferSDP(method sip.RequestMethod, body []byte) (*sip.Response, *sip.Request, error) {
-	if c.session == nil {
-		return nil, nil, fmt.Errorf("reoffer: not a call the bot placed")
-	}
 	req := sip.NewRequest(method, c.remoteContact())
 	if len(body) > 0 {
 		req.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
@@ -819,7 +814,13 @@ func (c *Call) ReofferSDP(method sip.RequestMethod, body []byte) (*sip.Response,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	res, err := c.session.Do(ctx, req)
+	var res *sip.Response
+	var err error
+	if c.inbound != nil {
+		res, err = c.inbound.Do(ctx, req)
+	} else {
+		res, err = c.session.Do(ctx, req)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -838,6 +839,9 @@ func (c *Call) ackReoffer(res *sip.Response, answer []byte) error {
 	if len(answer) > 0 {
 		ack.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
 		ack.SetBody(answer)
+	}
+	if c.inbound != nil {
+		return c.inbound.WriteRequest(ack)
 	}
 	return c.session.WriteRequest(ack)
 }
@@ -1135,10 +1139,16 @@ func (b *Bot) onInvite(req *sip.Request, tx sip.ServerTransaction) {
 	b.mu.Lock()
 	b.calls[id] = c
 	b.mu.Unlock()
-	if err := dlg.RespondSDP(sdp.WriteDescription(answer)); err != nil {
+	body := sdp.WriteDescription(answer)
+	if err := dlg.RespondSDP(body); err != nil {
 		ep.Close()
 		return
 	}
+	// Set under c.mu once the 200 is sent: Reoffer reads it so, after sipgo stored the 200 its
+	// in-dialog requests are built from.
+	c.mu.Lock()
+	c.local = body
+	c.mu.Unlock()
 	go ep.Serve(rtpio.Handlers{Audio: c.heard, DTMF: func(d string) {
 		c.mu.Lock()
 		c.digits += d

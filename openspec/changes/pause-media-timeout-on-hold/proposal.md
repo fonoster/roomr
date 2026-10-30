@@ -1,7 +1,8 @@
 ## Why
 
 Some phones and PBXs stop sending RTP when the caller presses hold, and say so with a re-INVITE
-or UPDATE whose SDP is `a=inactive` (or `a=recvonly`). The node ignores SDP direction today, so a
+or UPDATE whose SDP is `a=inactive`, `a=recvonly`, `a=sendonly` (most desk phones) or
+`c=0.0.0.0` (older peers). The node ignores SDP direction today, so a
 caller on hold for longer than `mediaTimeout` (15 s) is hung up with `media_timeout`. The rule is
 "when media is expected, media must be present": Asterisk (`rtp_timeout_hold`) and FreeSWITCH
 (`media_hold_timeout`) keep a separate timer for hold (fonoster/fonoster#1017).
@@ -15,12 +16,16 @@ caller on hold for longer than `mediaTimeout` (15 s) is hung up with `media_time
   telephone-event gets `488` and changes nothing, so the call is never worse off than before.
   Before the answer an offer gets `500` with `Retry-After`. While the remote says it receives no
   RTP (`a=inactive`, `a=sendonly`) the node sends it none, as its answer says.
-- Direction is read from the remote's side: `a=inactive` or `a=recvonly` means the remote sends no
-  RTP, so the leg's media timeout is paused; `a=sendrecv` or `a=sendonly` (music on hold still
-  flows) means it sends, and the timeout counts again from that offer.
-- New optional `mediaHoldTimeout` in `roomr.yaml` (off by default): a leg held this long ends the
-  call with `media_timeout`.
-- The caller bot can send a re-INVITE or UPDATE with a chosen direction (tests).
+- A leg, inbound or dialed, is held while the remote's latest offer says `a=inactive`,
+  `a=recvonly` or `a=sendonly`, or has `c=0.0.0.0` (answered `a=inactive` with the node's own
+  address); `a=sendrecv` or no direction is active. A held leg's media timeout is paused, and an
+  offer that switches the leg between held and active restarts the count of its silence.
+- New optional `mediaHoldTimeout` in `roomr.yaml` (30m by default, negative never): a held leg
+  that sends no RTP this long ends the call with `media_timeout`. It bounds silence, not hold
+  time: a held peer that keeps sending (music on hold) is never ended. FreeSWITCH's sample
+  `media_hold_timeout` is 1800 s.
+- The caller bot can send a re-INVITE or UPDATE with a chosen direction, on calls it placed or
+  answered (tests).
 
 ## Capabilities
 

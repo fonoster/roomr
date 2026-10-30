@@ -180,8 +180,9 @@ stateDiagram-v2
 
 `Ended.cause` is one of `caller_hangup`, `callee_hangup`, `busy`, `no_answer`, `rejected`,
 `media_timeout`, `node_error`, `max_duration`, `removed`, `app_gone`, with `sip_status` when SIP gave
-one. A silent caller leg ends as `media_timeout` (a leg on hold, `a=inactive` or `a=recvonly` in a
-re-INVITE or UPDATE, is not silent); a silent app leg or a broken stream ends as
+one. A silent caller leg ends as `media_timeout`. A leg on hold (`a=inactive`, `a=recvonly`,
+`a=sendonly` or `c=0.0.0.0` in a re-INVITE or UPDATE) is not silent: it ends with `media_timeout`
+after `mediaHoldTimeout` without RTP. A silent app leg or a broken stream ends as
 `app_gone`, and a stream is never reconnected.
 
 ## Control, events and failure

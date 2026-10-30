@@ -36,9 +36,9 @@ type Config struct {
 	// MediaTimeout ends an answered call whose caller or app leg sent no RTP for this long
 	// (15 s): media_timeout for the caller's leg, app_gone for the app's.
 	MediaTimeout time.Duration
-	// MediaHoldTimeout ends an answered call whose SIP leg has been on hold (its SDP says it
-	// sends no RTP: a=inactive or a=recvonly) for this long, with media_timeout. 0, the
-	// default, never ends a held call; the media timeout is paused while the leg is held.
+	// MediaHoldTimeout ends an answered call whose SIP leg is on hold (a=inactive, a=recvonly,
+	// a=sendonly or c=0.0.0.0) and sent no RTP for this long, with media_timeout (30 min); the
+	// media timeout is paused while the leg is held. Negative: a held leg never ends for silence.
 	MediaHoldTimeout time.Duration
 	// MaxDuration ends any call that runs this long (4 h); CreateCall and Answer can lower it.
 	MaxDuration time.Duration
@@ -121,6 +121,9 @@ func (c *Config) defaults() {
 	}
 	if c.EmptyRoomTimeout == 0 {
 		c.EmptyRoomTimeout = 30 * time.Second
+	}
+	if c.MediaHoldTimeout == 0 {
+		c.MediaHoldTimeout = 30 * time.Minute
 	}
 	if c.AnswerTimeout <= 0 {
 		c.AnswerTimeout = 10 * time.Second

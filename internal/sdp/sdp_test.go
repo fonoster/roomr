@@ -109,6 +109,7 @@ func TestDirection(t *testing.T) {
 		{"media over session", strings.Replace(offer, "t=0 0\r\n", "t=0 0\r\na=inactive\r\n", 1) + "a=sendrecv\r\n",
 			SendRecv, true},
 		{"other stream ignored", offer + "m=video 5000 RTP/AVP 96\r\na=inactive\r\n", SendRecv, true},
+		{"zero address", strings.Replace(offer, "c=IN IP4 10.0.0.9", "c=IN IP4 0.0.0.0", 1) + "a=sendrecv\r\n", Inactive, false},
 	}
 	for _, c := range cases {
 		m, err := Parse([]byte(c.body))

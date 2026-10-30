@@ -30,39 +30,40 @@ func answeredCall(n *Node, p *Participant, at time.Time) *call {
 	return c
 }
 
-// TestROM036_HoldPausesTheMediaTimeout: while the caller's SDP says it is not sending (a=inactive
-// or a=recvonly) its media timeout is paused; an offer that restores sending starts the count
-// again from then (roomr, "A silent leg ends the call", scenario "Caller on hold").
+// TestROM036_HoldPausesTheMediaTimeout: while the caller is held (its SDP says inactive,
+// recvonly, sendonly or c=0.0.0.0) its media timeout is paused, and the hold timeout (30m by
+// default) counts its silence instead; an offer that makes it active again starts the media
+// timeout's count from then (roomr, "A silent leg ends the call", scenario "Caller on hold").
 func TestROM036_HoldPausesTheMediaTimeout(t *testing.T) {
 	n := New(nil, Config{MediaTimeout: 15 * time.Second, EmptyRoomTimeout: -1})
 	defer n.Shutdown()
 	p := heldParticipant(t)
 	t0 := p.since
 
-	p.setSending(false, t0.Add(time.Second))
+	p.setDirection(false, false, t0.Add(time.Second)) // inactive
 	c := answeredCall(n, p, t0)
-	c.checkLimits(t0.Add(time.Hour - time.Minute))
+	c.checkLimits(t0.Add(29 * time.Minute))
 	if c.ending {
 		t.Fatalf("a held caller ended with %q", c.cause)
 	}
 	if got := p.silentFor(t0.Add(30 * time.Second)); got != 0 {
 		t.Fatalf("silentFor while held = %v", got)
 	}
-	if got := p.heldFor(t0.Add(31 * time.Second)); got != 30*time.Second {
-		t.Fatalf("heldFor = %v", got)
+	if got := p.heldSilentFor(t0.Add(31 * time.Second)); got != 30*time.Second {
+		t.Fatalf("heldSilentFor = %v", got)
 	}
 
-	// A second offer that still does not send keeps the hold's start.
-	p.setSending(false, t0.Add(40*time.Second))
-	if got := p.heldFor(t0.Add(41 * time.Second)); got != 40*time.Second {
-		t.Fatalf("heldFor after a repeated hold = %v", got)
+	// From one held direction to another (inactive to sendonly) the count goes on.
+	p.setDirection(true, false, t0.Add(40*time.Second))
+	if got := p.heldSilentFor(t0.Add(41 * time.Second)); got != 40*time.Second {
+		t.Fatalf("heldSilentFor after a second hold offer = %v", got)
 	}
 
 	// Back to sendrecv at 60 s: the media timeout counts from then.
 	resumed := t0.Add(60 * time.Second)
-	p.setSending(true, resumed)
-	if got := p.heldFor(resumed.Add(time.Second)); got != 0 {
-		t.Fatalf("heldFor after resume = %v", got)
+	p.setDirection(true, true, resumed)
+	if got := p.heldSilentFor(resumed.Add(time.Second)); got != 0 {
+		t.Fatalf("heldSilentFor after resume = %v", got)
 	}
 	c.checkLimits(resumed.Add(14 * time.Second))
 	if c.ending {
@@ -74,37 +75,69 @@ func TestROM036_HoldPausesTheMediaTimeout(t *testing.T) {
 	}
 }
 
-// TestROM036_MediaHoldTimeoutEndsALongHold: with mediaHoldTimeout set, a call held that long ends
-// with media_timeout; without it (the default) a hold never ends the call.
-func TestROM036_MediaHoldTimeoutEndsALongHold(t *testing.T) {
+// TestROM036_HoldTimeoutCountsSilence: a held caller that sends no RTP for mediaHoldTimeout ends
+// the call with media_timeout, counted from the offer that held it; a later offer that keeps it
+// held (sendonly to inactive) does not restart the count.
+func TestROM036_HoldTimeoutCountsSilence(t *testing.T) {
 	n := New(nil, Config{MediaTimeout: 15 * time.Second, MediaHoldTimeout: 10 * time.Minute, EmptyRoomTimeout: -1})
 	defer n.Shutdown()
 	p := heldParticipant(t)
 	t0 := p.since
-	p.setSending(false, t0)
+	p.setDirection(true, false, t0) // sendonly
 	c := answeredCall(n, p, t0)
+	p.setDirection(false, false, t0.Add(5*time.Minute)) // inactive
 	c.checkLimits(t0.Add(9 * time.Minute))
 	if c.ending {
 		t.Fatalf("ended %q before the hold timeout", c.cause)
 	}
 	c.checkLimits(t0.Add(11 * time.Minute))
 	if !c.ending || c.cause != ReasonMediaTimeout {
-		t.Fatalf("long hold: ending %v cause %q", c.ending, c.cause)
+		t.Fatalf("silent hold: ending %v cause %q", c.ending, c.cause)
 	}
 }
 
-// TestROM036_SendingCallerKeepsTheTimer: a caller whose offer still sends (sendonly: music on
-// hold) is not held, so its silence ends the call after the media timeout as usual.
-func TestROM036_SendingCallerKeepsTheTimer(t *testing.T) {
+// TestROM036_SendOnlyCallerIsHeld: a caller whose offer says sendonly is held like one that says
+// inactive (desk phones hold so and send no RTP): its silence does not end the call after the
+// media timeout.
+func TestROM036_SendOnlyCallerIsHeld(t *testing.T) {
 	n := New(nil, Config{MediaTimeout: 15 * time.Second, EmptyRoomTimeout: -1})
 	defer n.Shutdown()
 	p := heldParticipant(t)
 	t0 := p.since
-	p.setSending(true, t0.Add(time.Second))
+	p.setDirection(true, false, t0.Add(time.Second))
 	c := answeredCall(n, p, t0)
-	c.checkLimits(t0.Add(16 * time.Second))
-	if !c.ending || c.cause != ReasonMediaTimeout {
-		t.Fatalf("silent sendonly caller: ending %v cause %q", c.ending, c.cause)
+	c.checkLimits(t0.Add(time.Minute))
+	if c.ending {
+		t.Fatalf("a silent sendonly caller ended with %q", c.cause)
+	}
+}
+
+// TestROM036_MediaHoldTimeoutDefault: mediaHoldTimeout is 30m when absent or 0; a negative one
+// (never) and a set one are kept.
+func TestROM036_MediaHoldTimeoutDefault(t *testing.T) {
+	for in, want := range map[time.Duration]time.Duration{0: 30 * time.Minute, -time.Second: -time.Second,
+		time.Minute: time.Minute} {
+		n := New(nil, Config{MediaHoldTimeout: in, EmptyRoomTimeout: -1})
+		got := n.cfg.MediaHoldTimeout
+		n.Shutdown()
+		if got != want {
+			t.Errorf("MediaHoldTimeout %v: got %v, want %v", in, got, want)
+		}
+	}
+}
+
+// TestROM036_NegativeHoldTimeoutNeverEnds: with a negative mediaHoldTimeout a held, silent leg
+// is never ended for its silence.
+func TestROM036_NegativeHoldTimeoutNeverEnds(t *testing.T) {
+	n := New(nil, Config{MediaTimeout: 15 * time.Second, MediaHoldTimeout: -time.Second, EmptyRoomTimeout: -1})
+	defer n.Shutdown()
+	p := heldParticipant(t)
+	t0 := p.since
+	p.setDirection(false, false, t0)
+	c := answeredCall(n, p, t0)
+	c.checkLimits(t0.Add(59 * time.Minute))
+	if c.ending {
+		t.Fatalf("a held caller ended with %q", c.cause)
 	}
 }
 

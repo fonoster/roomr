@@ -56,12 +56,12 @@ type Participant struct {
 	stopped atomic.Bool
 	// since is when the participant joined (media timeouts count from it at the earliest).
 	since time.Time
-	// holdMu guards heldAt and resumedAt. heldAt is when the remote's SDP said it stopped
-	// sending (zero while it sends); resumedAt is when an offer last restored sending, so the
-	// media timeout counts from then at the earliest.
+	// holdMu guards held and changedAt. held: the remote's latest offer puts the leg on hold
+	// (a=inactive, a=recvonly, a=sendonly or c=0.0.0.0). changedAt is when an offer last switched
+	// the leg between held and active: its silence counts from then at the earliest.
 	holdMu    sync.Mutex
-	heldAt    time.Time
-	resumedAt time.Time
+	held      bool
+	changedAt time.Time
 	// paused: the remote's latest offer says it wants no RTP (a=inactive or a=sendonly), and
 	// the node answered so: the room sends the leg nothing until an offer asks for it again.
 	paused atomic.Bool
@@ -94,52 +94,56 @@ func (p *Participant) tracks() []Event {
 	return []Event{{"track_id": p.TrackID, "kind": "audio", "codec": p.Codec}}
 }
 
-// silentFor is how long the participant has sent no RTP (counted from when it joined, or from
-// when it came off hold, at most). A participant whose SDP says it is not sending is not silent:
-// its media timeout is paused (roomr, "A silent leg ends the call").
+// silentFor is how long an active participant has sent no RTP (see quiet). A held one is not
+// silent: its media timeout is paused (roomr, "A silent leg ends the call").
 func (p *Participant) silentFor(now time.Time) time.Duration {
-	p.holdMu.Lock()
-	held, resumed := !p.heldAt.IsZero(), p.resumedAt
-	p.holdMu.Unlock()
+	held, quiet := p.quiet(now)
 	if held {
 		return 0
 	}
+	return quiet
+}
+
+// heldSilentFor is how long a held participant has sent no RTP (see quiet); 0 while it is active.
+// The media hold timeout bounds it, so a held peer that keeps sending (music on hold) never ends.
+func (p *Participant) heldSilentFor(now time.Time) time.Duration {
+	held, quiet := p.quiet(now)
+	if !held {
+		return 0
+	}
+	return quiet
+}
+
+// quiet reports whether the participant is held, and how long it has sent no RTP: counted from
+// its last packet, when it joined, or the offer that last put it on or off hold, whichever is
+// latest.
+func (p *Participant) quiet(now time.Time) (bool, time.Duration) {
+	p.holdMu.Lock()
+	held, changed := p.held, p.changedAt
+	p.holdMu.Unlock()
 	last := p.endpoint.LastPacketAt()
-	for _, t := range []time.Time{p.since, resumed} {
+	for _, t := range []time.Time{p.since, changed} {
 		if t.After(last) {
 			last = t
 		}
 	}
-	return now.Sub(last)
+	return held, now.Sub(last)
 }
 
-// heldFor is how long the participant's SDP has said it is not sending (0 while it sends).
-func (p *Participant) heldFor(now time.Time) time.Duration {
-	p.holdMu.Lock()
-	defer p.holdMu.Unlock()
-	if p.heldAt.IsZero() {
-		return 0
-	}
-	return now.Sub(p.heldAt)
-}
-
-// setDirection applies the direction of the remote's latest offer: what it sends drives the
-// media timeout (setSending), what it receives whether the room sends it RTP.
+// setDirection applies the direction of the remote's latest offer: a leg that sends or receives
+// no RTP is held (setSending), and one that receives none is sent nothing by the room.
 func (p *Participant) setDirection(sends, receives bool, now time.Time) {
-	p.setSending(sends, now)
+	p.setSending(sends && receives, now)
 	p.paused.Store(!receives)
 }
 
-// setSending records whether the remote sends: not sending starts a hold, sending ends it and
-// restarts the media timeout's count.
-func (p *Participant) setSending(sending bool, now time.Time) {
+// setSending records whether the leg is active: a switch between held and active restarts the
+// count of its silence.
+func (p *Participant) setSending(active bool, now time.Time) {
 	p.holdMu.Lock()
 	defer p.holdMu.Unlock()
-	switch {
-	case !sending && p.heldAt.IsZero():
-		p.heldAt = now
-	case sending && !p.heldAt.IsZero():
-		p.heldAt, p.resumedAt = time.Time{}, now
+	if p.held == active {
+		p.held, p.changedAt = !active, now
 	}
 }
 

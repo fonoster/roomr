@@ -7,20 +7,22 @@ one key for the caller leg and the app leg, 15 s by default, like LiveKit), with
 the caller's leg went silent and `cause: "app_gone"` when the app's did, sending BYE on the SIP
 leg. A SIP leg is not silent while its remote is on hold: the node SHALL answer a re-INVITE or
 UPDATE with SDP on an answered leg with `200 OK` and the same stream, its direction the offer's
-mirror (RFC 3264), and SHALL pause the leg's media timeout while the remote's latest offer says it
-sends no RTP (`a=inactive` or `a=recvonly`). An offer that says the remote sends (`a=sendrecv`,
-or `a=sendonly` such as music on hold) SHALL restart the count from that offer. While the
-remote's latest offer says it receives no RTP (`a=inactive` or `a=sendonly`) the node SHALL send
-the leg none, as its answer says. The node SHALL take only offers it can honor without touching the
+mirror (RFC 3264), on a leg the node answered or dialed. The leg is held while the remote's
+latest offer (or its answer in the ACK to a late offer) says `a=inactive`, `a=recvonly` or
+`a=sendonly`, or has `c=0.0.0.0`, which the node answers `a=inactive` with its own address; it is
+active on `a=sendrecv` or no direction. The node SHALL pause a held leg's media timeout, and an
+offer that switches the leg between held and active SHALL restart the count of its silence from
+that offer. While the remote's latest offer says it receives no RTP (`a=inactive`, `a=sendonly`
+or `c=0.0.0.0`) the node SHALL send the leg none, as its answer says. The node SHALL take only offers it can honor without touching the
 leg's RTP endpoint: one that moves the remote's address or port, drops the negotiated codec or
 payload type, changes the SRTP key or moves telephone-event SHALL be answered
 `488 Not Acceptable Here` and change nothing. An offer before the leg is answered (and a re-INVITE
 before the setup INVITE is ACKed) SHALL be answered `500` with `Retry-After` and change nothing. A
 re-INVITE without SDP SHALL get the node's stream as a `sendrecv` offer, the remote's answer in
 the ACK applying its direction. A retransmitted re-INVITE (same CSeq) SHALL get the same answer,
-and the node SHALL retransmit its `200` over UDP until the ACK. With
-`mediaHoldTimeout` set (off by default) the node SHALL end a call whose SIP leg has been on hold
-that long with `cause: "media_timeout"`.
+and the node SHALL retransmit its `200` over UDP until the ACK. The node SHALL end a call whose
+held SIP leg sends no RTP for `mediaHoldTimeout` (30 min by default, never when negative) with
+`cause: "media_timeout"`.
 
 #### Scenario: App stops sending audio
 - **WHEN** the app's RTP stops while its control stream stays open
@@ -42,12 +44,24 @@ that long with `cause: "media_timeout"`.
 - **WHEN** the caller sends an UPDATE with `a=recvonly` and then no RTP for longer than the media timeout
 - **THEN** the node answers `200 OK` with `a=sendonly` and the call stays up
 
-#### Scenario: Music on hold keeps the timer
-- **WHEN** the caller sends a re-INVITE with `a=sendonly` and then no RTP
-- **THEN** after the media timeout the node ends the call with `cause: "media_timeout"`
+#### Scenario: A sendonly hold pauses the timer
+- **WHEN** the caller sends a re-INVITE with `a=sendonly` and then no RTP for longer than the media timeout
+- **THEN** the node answers `200 OK` with `a=recvonly`, sends the caller no RTP and the call stays up
+
+#### Scenario: Hold by zero address
+- **WHEN** the caller sends a re-INVITE with `c=0.0.0.0`, its port and codec unchanged, and then no RTP for longer than the media timeout
+- **THEN** the node answers `200 OK` with `a=inactive` and its own `c=` address, sends the caller no RTP and the call stays up
+
+#### Scenario: Callee on hold
+- **WHEN** the party on a leg the node dialed (`CreateCall`) sends a re-INVITE with `a=inactive` and then no RTP for longer than the media timeout
+- **THEN** the node answers `200 OK` with `a=inactive` and the call stays up
+
+#### Scenario: Music on hold outlives the hold timeout
+- **WHEN** a held caller keeps sending RTP for longer than `mediaHoldTimeout`
+- **THEN** the call stays up
 
 #### Scenario: Held too long
-- **WHEN** `mediaHoldTimeout` is set and the caller stays on hold longer than it
+- **WHEN** a held caller sends no RTP for longer than `mediaHoldTimeout`
 - **THEN** the node ends the call with `cause: "media_timeout"`
 
 #### Scenario: Offer that moves media

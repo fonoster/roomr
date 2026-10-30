@@ -68,6 +68,26 @@ func TestROM036_OfferThatMovesMediaIsRefused(t *testing.T) {
 	}
 }
 
+// TestROM036_ZeroAddressHoldIsTaken: an offer with c=0.0.0.0 (the RFC 2543 hold) does not move
+// the media: it holds the leg whatever its a= line, is answered inactive with the node's own
+// address, and an offer back at the setup address resumes it.
+func TestROM036_ZeroAddressHoldIsTaken(t *testing.T) {
+	d, setup := inboundLeg(t)
+	held := strings.Replace(string(remoteSDP(4000, "0 8 101", "sendrecv")), "c=IN IP4 10.0.0.1", "c=IN IP4 0.0.0.0", 1)
+	o := d.handle(sip.INVITE, 2, []byte(held))
+	if o.status != 200 || !o.report || o.sends || o.receives {
+		t.Fatalf("zero-address hold: %+v", o)
+	}
+	a := mustParse(t, o.body)
+	if a.Direction != sdp.Inactive || a.Host != setup.Host || a.Port != 5000 || a.SessionVersion != setup.SessionVersion+1 {
+		t.Fatalf("answer %+v (setup %+v)", a, setup)
+	}
+	o = d.handle(sip.INVITE, 3, remoteSDP(4000, "0 8 101", "sendrecv"))
+	if o.status != 200 || !o.sends || !o.receives {
+		t.Fatalf("resume: %+v", o)
+	}
+}
+
 // TestROM036_AnswerVersionRisesOnlyOnChange: o= keeps the version while the node's SDP is the
 // same and raises it by one when it changes (RFC 3264 section 8).
 func TestROM036_AnswerVersionRisesOnlyOnChange(t *testing.T) {

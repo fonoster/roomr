@@ -24,7 +24,8 @@ type Media struct {
 	Secure bool
 	Crypto []Crypto
 	// Direction is the stream's a=sendrecv, sendonly, recvonly or inactive as the writer means
-	// it (media level over session level); SendRecv when absent (RFC 4566).
+	// it (media level over session level); SendRecv when absent (RFC 4566), Inactive when c= is
+	// ZeroAddress.
 	Direction string
 	// SessionID and SessionVersion are the o= line's (0 when absent or not numbers).
 	SessionID, SessionVersion uint64
@@ -37,6 +38,9 @@ const (
 	RecvOnly = "recvonly"
 	Inactive = "inactive"
 )
+
+// ZeroAddress in c= is the old way to put a stream on hold: the writer sends and wants no RTP.
+const ZeroAddress = "0.0.0.0"
 
 // Sends reports whether the writer of the description sends RTP: sendrecv and sendonly (music
 // on hold) do, recvonly and inactive do not.
@@ -160,6 +164,9 @@ func Parse(body []byte) (Media, error) {
 		m.Direction = audioDir
 	} else if sessionDir != "" {
 		m.Direction = sessionDir
+	}
+	if m.Host == ZeroAddress {
+		m.Direction = Inactive // the RFC 2543 hold, whatever the a= line (RFC 3264 section 8.4)
 	}
 	// Static payload types may come without rtpmap.
 	for _, pt := range m.PayloadTypes {

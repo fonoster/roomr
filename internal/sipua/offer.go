@@ -15,7 +15,7 @@ import (
 
 // In-dialog offers (re-INVITE and UPDATE) on an answered leg: roomr, "A silent leg ends the
 // call". The node takes only what it can honor without touching the leg's RTP endpoint: the
-// same remote address and port, the negotiated codec and payload type, the same SRTP key. Such
+// same remote address (or c=0.0.0.0, a hold) and port, the negotiated codec and payload type, the same SRTP key. Such
 // an offer changes the media direction only (hold and resume) and is answered 200 with the same
 // stream, its direction the offer's mirror (RFC 3264 section 6.1). Any other offer is answered
 // 488 and changes nothing (RFC 3261 section 14.2: the session stays as it was).
@@ -158,7 +158,8 @@ func shape(dir string, pts []int, dtmf, tag int) string {
 // accepts checks an offer (or a late answer) against the stream the leg's endpoint uses. It
 // returns the node's description for it, or why the node cannot take it. d.mu must be held.
 func (d *inDialog) accepts(m sdp.Media) (sdp.Description, string) {
-	if m.Host != d.remote.Host || m.Port != d.remote.Port {
+	// c=0.0.0.0 holds the stream (sdp.ZeroAddress) and does not move it.
+	if (m.Host != d.remote.Host && m.Host != sdp.ZeroAddress) || m.Port != d.remote.Port {
 		return sdp.Description{}, fmt.Sprintf("moves the remote's media to %s:%d", m.Host, m.Port)
 	}
 	if !strings.EqualFold(m.Codecs[d.pt], d.codec) {

@@ -321,8 +321,8 @@ func (c *call) participantLeft(p *Participant, cause string) {
 
 // checkLimits ends an answered call past its maximum duration, or one of whose legs sent no RTP
 // for the media timeout: media_timeout for the SIP leg, app_gone for the app's. A SIP leg on
-// hold (its SDP says it is not sending) is not silent; with a media hold timeout it ends with
-// media_timeout once held that long.
+// hold is not silent; it ends with media_timeout once it sends no RTP for the media hold timeout
+// (never when that is negative).
 func (c *call) checkLimits(now time.Time) {
 	c.mu.Lock()
 	answered := c.state == CallAnswered && !c.answeredAt.IsZero()
@@ -337,7 +337,7 @@ func (c *call) checkLimits(now time.Time) {
 		c.end(ReasonMaxDuration, 0)
 	case leg != nil && leg.silentFor(now) > timeout:
 		c.end(ReasonMediaTimeout, 0)
-	case leg != nil && hold > 0 && leg.heldFor(now) > hold:
+	case leg != nil && hold > 0 && leg.heldSilentFor(now) > hold:
 		c.end(ReasonMediaTimeout, 0)
 	case app != nil && app.silentFor(now) > timeout:
 		c.end(ReasonAppGone, 0)
