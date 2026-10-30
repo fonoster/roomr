@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/fonoster/roomr/compare/v0.3.0...v0.3.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **sipua:** reuse one TCP or TLS connection per peer with a wildcard sip.listen ([#59](https://github.com/fonoster/roomr/issues/59)) ([606f5ef](https://github.com/fonoster/roomr/commit/606f5ef600d96136691cb42c30b1cae416f3d0e5)), closes [#58](https://github.com/fonoster/roomr/issues/58)
+
 ## [0.3.0](https://github.com/fonoster/roomr/compare/v0.2.7...v0.3.0) (2026-10-26)
 
 
