@@ -13,6 +13,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -330,6 +331,21 @@ func (n *testNode) registered() bool {
 // when p is not nil.
 func startNode(t *testing.T, host string, p *peer, tlsConfig *tls.Config) *testNode {
 	t.Helper()
+	n := newNode(t, host, p, tlsConfig)
+	n.serve(t)
+	return n
+}
+
+// serve starts the node's Serve and stops it when the test ends.
+func (n *testNode) serve(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { _ = n.ua.Serve(ctx) }()
+	t.Cleanup(cancel)
+}
+
+// newNode is a node listening on host:<free port> whose Serve has not started.
+func newNode(t *testing.T, host string, p *peer, tlsConfig *tls.Config) *testNode {
+	t.Helper()
 	n := &testNode{port: freePort(t)}
 	cfg := sipua.Config{Listen: net.JoinHostPort(host, strconv.Itoa(n.port)), AdvertiseHost: "127.0.0.1",
 		AdvertisePort: n.port, ClientTLS: tlsConfig, OnRegistrationState: func(s sipua.RegistrationState) {
@@ -350,12 +366,7 @@ func startNode(t *testing.T, host string, p *peer, tlsConfig *tls.Config) *testN
 		t.Fatal(err)
 	}
 	n.ua = ua
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() { _ = ua.Serve(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		ua.Close()
-	})
+	t.Cleanup(ua.Close)
 	return n
 }
 
@@ -518,5 +529,46 @@ func TestROM033_AcksOverUDPFromListenPortWithWildcardListen(t *testing.T) {
 		if got := srcPort(t, m.src); got != n.port {
 			t.Fatalf("ACK from port %d, want the listen port %d", got, n.port)
 		}
+	}
+}
+
+// A UDP request made before Serve has handed the listener to the transport waits for it, then
+// leaves from the listen port; before, it bound a second socket on the port and failed on Linux.
+func TestROM033_DialsBeforeServeOverUDP(t *testing.T) {
+	p := startPeer(t, "udp")
+	n := newNode(t, "0.0.0.0", nil, nil)
+	time.AfterFunc(100*time.Millisecond, func() { n.serve(t) })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	leg, _, err := n.ua.DialTarget(ctx, node.SipTarget{URI: "sip:callee@" + p.addr}, "", []byte("v=0\r\n"), func(int) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = leg.Bye() }()
+	waitFor(t, "the ACK", func() bool { return len(p.requests(sip.ACK)) > 0 })
+	for _, method := range []sip.RequestMethod{sip.INVITE, sip.ACK} {
+		for _, m := range p.requests(method) {
+			if got := srcPort(t, m.src); got != n.port {
+				t.Fatalf("%s from port %d, want the listen port %d", method, got, n.port)
+			}
+		}
+	}
+}
+
+func TestROM033_DialFailsWhenContextEndsBeforeServe(t *testing.T) {
+	p := startPeer(t, "udp")
+	n := newNode(t, "0.0.0.0", nil, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, _, err := n.ua.DialTarget(ctx, node.SipTarget{URI: "sip:callee@" + p.addr}, "", []byte("v=0\r\n"), func(int) {})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("DialTarget error = %v, want %v", err, context.DeadlineExceeded)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("DialTarget returned after %v, want about 200ms", d)
+	}
+	if got := len(p.requests(sip.INVITE)); got != 0 {
+		t.Fatalf("peer received %d INVITEs, want none", got)
 	}
 }
