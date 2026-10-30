@@ -76,6 +76,10 @@ type UA struct {
 	// tcp is the TCP listener on the same address, also bound in New so a taken port fails
 	// startup instead of stopping a node that already reported ready.
 	tcp net.Listener
+	// ready closes once the transport has pooled the UDP listener (or Serve has returned), so
+	// UDP requests and registrations made before then wait for it (ROM-033).
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 // sharedPortDialer dials TCP and TLS from the listen address (its host, 0.0.0.0 for a wildcard,
@@ -100,16 +104,30 @@ func sharedPortDialer(listen net.Addr) func(net.Addr) net.Dialer {
 type listenRequester struct {
 	ua  *sipgo.UserAgent
 	udp sip.Addr
+	// ready closes once the transport has pooled the UDP listener.
+	ready <-chan struct{}
 }
 
 func (r *listenRequester) Request(ctx context.Context, req *sip.Request) (sip.ClientTransaction, error) {
-	if strings.EqualFold(req.Transport(), "UDP") {
+	udp := strings.EqualFold(req.Transport(), "UDP")
+	if udp {
 		r.udp.Copy(&req.Laddr)
 	}
 	// The client hands ACKs (2xx retransmissions too) to its TxRequester, but the transaction
-	// layer refuses them: they go straight to the transport.
+	// layer refuses them: they go straight to the transport. An ACK follows a response that came
+	// in on the pooled listener, so it never waits for it.
 	if req.IsAck() {
 		return nil, r.ua.TransportLayer().WriteMsg(req)
+	}
+	// sipgo finds the UDP listener only once Serve has pooled it; before that it binds a second
+	// socket on the listen port, which fails on Linux. Wait for the listener instead of sending
+	// from an ephemeral port (ROM-033).
+	if udp {
+		select {
+		case <-r.ready:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	tx, err := r.ua.TransactionLayer().Request(ctx, req)
 	if err != nil {
@@ -171,10 +189,11 @@ func New(n *node.Node, cfg Config) (*UA, error) {
 		closeListeners()
 		return nil, err
 	}
-	client.TxRequester = &listenRequester{ua: ua,
+	ready := make(chan struct{})
+	client.TxRequester = &listenRequester{ua: ua, ready: ready,
 		udp: sip.Addr{IP: net.ParseIP(udpHost), Port: udpPort, Hostname: udpHost}}
 	contact := sip.ContactHeader{Address: sip.Uri{User: "roomr", Host: cfg.AdvertiseHost, Port: cfg.AdvertisePort}}
-	u := &UA{cfg: cfg, node: n, ua: ua, srv: srv, client: client, udp: udp, tcp: tcp, contact: contact,
+	u := &UA{cfg: cfg, node: n, ua: ua, srv: srv, client: client, udp: udp, tcp: tcp, ready: ready, contact: contact,
 		dialogs: sipgo.NewDialogServerCache(client, contact), out: sipgo.NewDialogClientCache(client, contact)}
 	for _, r := range cfg.Registrations {
 		reg, err := newRegistration(r)
@@ -223,14 +242,26 @@ func New(n *node.Node, cfg Config) (*UA, error) {
 
 // Serve listens on UDP and TCP until ctx ends.
 func (u *UA) Serve(ctx context.Context) error {
+	done := make(chan struct{})
+	defer close(done)
+	defer u.markReady()
 	errs := make(chan error, 3)
 	go func() { errs <- u.srv.ServeUDP(u.udp) }()
 	go func() { errs <- u.srv.ServeTCP(u.tcp) }()
 	if u.cfg.TLSListen != "" && u.cfg.TLSConfig != nil {
 		go func() { errs <- u.srv.ListenAndServeTLS(ctx, "tcp", u.cfg.TLSListen, u.cfg.TLSConfig) }()
 	}
+	go u.awaitUDPListener(done)
 	for _, r := range u.regs {
-		go u.registerLoop(ctx, r)
+		go func() {
+			// REGISTERs leave from the listen port, so they wait for the pooled listener (ROM-033).
+			select {
+			case <-u.ready:
+			case <-ctx.Done():
+				return
+			}
+			u.registerLoop(ctx, r)
+		}()
 	}
 	select {
 	case <-ctx.Done():
@@ -239,6 +270,29 @@ func (u *UA) Serve(ctx context.Context) error {
 		return err
 	}
 }
+
+// awaitUDPListener closes ready once sipgo has pooled the UDP listener, which it does inside
+// ServeUDP under the socket's local address (sipgo v1.6.0), or when done closes.
+func (u *UA) awaitUDPListener(done <-chan struct{}) {
+	key := u.udp.LocalAddr().String()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		if c, err := u.ua.TransportLayer().GetConnection("udp", key); err == nil {
+			// GetConnection adds a reference; dropping it never closes a listener.
+			_, _ = c.TryClose()
+			u.markReady()
+			return
+		}
+		select {
+		case <-done:
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+func (u *UA) markReady() { u.readyOnce.Do(func() { close(u.ready) }) }
 
 // Close releases the user agent (call Unregister first on a clean exit).
 func (u *UA) Close() {
