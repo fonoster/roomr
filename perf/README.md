@@ -59,6 +59,47 @@ It exits 0 when every benchmark passed and 1 when one didn't, and writes
 `.perfkit/<run id>/report.json` (ignored by git). Running on your machine checks the harness.
 It can't pin real cores, so its numbers aren't Roomr's limits.
 
+## Run it from GitHub
+
+Actions → **Benchmarks** → Run workflow (`.github/workflows/benchmarks.yaml`):
+
+| Input | Meaning |
+| --- | --- |
+| `target-version` | The Roomr release to benchmark, like `0.4.0`. The run stops before creating any server when the tag `v0.4.0` or the image `fonoster/roomr:0.4.0` doesn't exist. |
+| `config` | `perf/perfkit.smoke.yaml` (the default) takes about 40 minutes; `perf/perfkit.yaml` takes about 7 hours. |
+| `benchmarks` | Ids, comma-separated, like `rooms-g711`; empty runs both. |
+
+perfkit creates a `c-4` server for Roomr and a `c-8` load generator, and deletes both on every
+exit path. Both bill by the hour while they exist. A scheduled sweep every 6 hours deletes
+anything older than 9 hours that a cancelled run left behind.
+
+The workflow reads two secrets, `DIGITALOCEAN_TOKEN` and `PERFKIT_SSH_KEY`. Both are meant to
+live in the fonoster organization, shared with routr, and roomr must be among each secret's
+selected repositories. A repository secret with the same name overrides the organization's.
+
+| Secret | What it is |
+| --- | --- |
+| `DIGITALOCEAN_TOKEN` | A DigitalOcean token with custom scopes: `droplet`, `vpc`, `firewall` and `ssh_key`, each `create`, `read` and `delete` (perfkit's README lists them). |
+| `PERFKIT_SSH_KEY` | An ed25519 private key without a passphrase (`ssh-keygen -t ed25519 -N "" -f perfkit`). perfkit registers its public half in DigitalOcean as `perfkit-shared`. |
+
+## Where results land
+
+When a run ends with a verdict, the workflow opens a pull request from `perf/run-<run id>`,
+titled `chore(perf): add benchmark run <run id> (v<version>)`. It adds two files and nothing else:
+
+- `perf/runs/<run id>/report.json`: the run's report.
+- `perf/runs/runs.json`: the history of every run, newest first (`perfkit/runs/v1`), created by
+  the first run.
+
+No HTML is committed. The raw SIPp traces and samples stay in the run's Actions artifact
+`perfkit-report-<run id>` until it expires.
+
+Review the pull request, then merge it. It shows no status checks, because events from
+`GITHUB_TOKEN` start no workflows, so you merge it with the ruleset bypass, like the release
+pull request. Its `chore` type releases nothing. Until it is merged, the run isn't in
+`perf/runs/`. Rerunning the workflow's `publish` job renders the run again against the
+current `main`, and updates the same pull request.
+
 ## Read a report
 
 In `report.json` (`perfkit/report/v1`, described in perfkit's
@@ -74,12 +115,15 @@ In `report.json` (`perfkit/report/v1`, described in perfkit's
 - `rooms-g711`: `headline.memoryGrowthMBPerHour` (Roomr's memory slope after the warm-up) and
   `rules[]` with each rule's limit and measured value.
 
-To see a report as a page, render it with perfkit:
+To see a report as a page, render it with perfkit. For a published run, add the history so the
+page shows how it compares to earlier runs:
 
 ```sh
 npx -y npm@11 exec --yes --package=github:fonoster/perfkit#v0.1.5 -- perfkit render \
-  --report .perfkit/<run id>/report.json --out /tmp/roomr-bench
+  --report perf/runs/<run id>/report.json --history perf/runs/runs.json --out /tmp/roomr-bench
 ```
+
+For a local run, use `--report .perfkit/<run id>/report.json` and leave out `--history`.
 
 ## Check a benchmark by hand
 
