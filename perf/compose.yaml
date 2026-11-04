@@ -1,0 +1,33 @@
+# Roomr and the app that answers its calls, on the UUT. perfkit sets the PERFKIT_* variables.
+# Host networking only: perfkit refuses a service without it.
+services:
+  app:
+    image: node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+    network_mode: host
+    restart: "no"
+    cpuset: "2,3"
+    working_dir: /work
+    # The app's own files, read-only; npm ci installs into /work, so node_modules never lands in perf/.
+    volumes:
+      - ./app/app.mjs:/work/app.mjs:ro
+      - ./app/package.json:/work/package.json:ro
+      - ./app/package-lock.json:/work/package-lock.json:ro
+    command: ["sh", "-c", "npm ci --no-audit --no-fund --loglevel=error && exec node app.mjs"]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "50071"]
+      interval: 2s
+      timeout: 2s
+      retries: 3
+      start_period: 120s
+
+  roomr:
+    image: ${PERFKIT_IMAGE_ROOMR:?set PERFKIT_IMAGE_ROOMR}
+    network_mode: host
+    restart: "no"
+    cpuset: "0,1"   # the spec's 2 vCPU capacity bar
+    depends_on:
+      app: { condition: service_healthy }
+    environment:
+      PERFKIT_UUT_IP: ${PERFKIT_UUT_IP:?set PERFKIT_UUT_IP}
+    volumes:
+      - ./roomr.yaml:/config/roomr.yaml:ro
