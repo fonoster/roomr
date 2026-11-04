@@ -26,7 +26,7 @@ benchmarks:
       compose: compose.yaml
       processes:                  # the sampler's command line starts with a space
         - { name: roomr, match: "(^| )/roomr( |$)" }
-        - { name: app, match: "node app.mjs" }   # its CPU shows when the app, not Roomr, is the limit
+        - { name: app, match: "(^| )/usr/local/bin/perf-app( |$)" }   # its CPU shows when the app, not Roomr, is the limit
     load:
       tool: sipp
       transport: udp

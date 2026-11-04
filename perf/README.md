@@ -33,8 +33,8 @@ with every call, then levels off. A shorter warm-up would report that as a leak.
 | `perfkit.smoke.yaml` | The same benchmarks, shortened, to check the harness in under 30 minutes. |
 | `compose.yaml` | What runs on the server under test: `roomr` on cores 0 and 1, and `app` on cores 2 and 3, both with host networking. |
 | `roomr.yaml` | The node's config. `${PERFKIT_UUT_IP}` is expanded by the node. No NATS runs there; the node works without it. `maxRooms` is high so the ramp, not the room cap, finds the limit. |
-| `app/app.mjs` | The app: serves `session.v1.Session` on `127.0.0.1:50071` (the node's `sessionEndpoint`), answers every call with an L16/16000 RTP endpoint and echoes each packet back, so neither leg goes silent and trips `mediaTimeout` (15 s). |
-| `app/package.json`, `app/package-lock.json` | The app's one dependency, `@fonoster/roomr`, pinned (not the version under test: the app isn't under test, and `session.v1` only grows). `npm ci` installs it inside the container. |
+| `app/main.go` | The app: serves `session.v1.Session` on `127.0.0.1:50071` (the node's `sessionEndpoint`), answers every call with an L16/16000 RTP endpoint and echoes each packet back, so neither leg goes silent and trips `mediaTimeout` (15 s). It's in Go so it stays far from its two cores' limit at the top of the ramp. A single-threaded Node app reached 87% of a core at 90 calls/s, too close to tell its limit from Roomr's. |
+| `app/go.mod`, `app/go.sum` | Its own module. It imports `api/session/v1` from `github.com/fonoster/roomr` at a pinned tag, not the version under test: the app isn't under test, and `session.v1` only grows. The stock `golang` image builds it when the container starts, into `/usr/local/bin`, so nothing is written into `perf/`. |
 | `invite-answer/uac_invite.xml` | SIPp caller: INVITE with a PCMU offer, 200, ACK, hold, BYE, 200. Sends no RTP, so SIPp isn't the bottleneck at high rates. |
 | `rooms-g711/uac_invite.xml` | The same dialog, streaming PCMU RTP (`rtp_stream`, looped silence) for the whole hold. |
 | `audio/silence.ulaw` | One second of PCMU silence (8000 bytes of `0xFF`), raw, as SIPp's `rtp_stream` reads it. |

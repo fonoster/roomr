@@ -1,8 +1,0 @@
-{
-  "name": "roomr-perf-app",
-  "private": true,
-  "description": "The app that answers Roomr's calls in the benchmarks (perf/README.md). Not under test.",
-  "dependencies": {
-    "@fonoster/roomr": "0.4.0"
-  }
-}
