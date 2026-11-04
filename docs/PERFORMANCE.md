@@ -5,6 +5,12 @@ each one G.711 caller plus one session participant, for 30 minutes with keypress
 zero dropped audio frames and every keypress reported exactly once. Opus-heavy load is measured and
 reported separately (it is not a pass/fail bar).
 
+> **Benchmarks on pinned cores.** [`perf/`](../perf/README.md) runs Roomr with perfkit on two
+> dedicated cores. It measures the call-setup ceiling (`invite-answer`) and a six-hour leak soak at
+> about 200 G.711 rooms (`rooms-g711`). The soak does **not** give a verdict on the Capacity bar:
+> the bar needs zero dropped frames and every keypress reported, and perfkit measures neither. The
+> Verdict below, measured on a laptop with `GOMAXPROCS=2`, stays the bar's verdict.
+
 **Verdict: the G.711 run meets the bar** (0 sequence gaps, 71,800 of 71,800 keypresses reported, in
 every room exactly once). This is an approximation, see Method.
 

@@ -1,0 +1,57 @@
+apiVersion: perfkit/v1
+project:
+  name: Roomr
+  repo: fonoster/roomr
+  siteUrl: https://github.com/fonoster/roomr/tree/main/perf/runs
+  accent: "#5FCFCE"
+  title: How many calls and rooms a Roomr node handles.
+  lead: Roomr on two dedicated cores, the spec's capacity bar, driven by SIPp from a second server.
+infra:
+  provider: digitalocean
+  region: nyc3
+  uut: { size: c-4 }
+  loadgen: { size: c-8 }
+  maxLifetime: 9h
+images:
+  roomr: fonoster/roomr
+benchmarks:
+  - id: invite-answer
+    kind: capacity
+    title: Call setup at a 2 s hold
+    narrative:
+      what: Inbound calls answered by an app over the control stream, each held 2 s.
+      why: Every call pays this cost; when it saturates, callers wait or fail.
+      how: "Smoke run: SIPp ramps INVITEs from 10 to 30 calls/s, 10 more every minute, each call held 2 s, so about twice the rate is mixing audio at once. It stops at the first step where p99 INVITE-to-200 reaches 200 ms or failed calls reach 0.1%."
+    uut:
+      compose: compose.yaml
+      processes:                  # the sampler's command line starts with a space
+        - { name: roomr, match: "(^| )/roomr( |$)" }
+        - { name: app, match: "node app.mjs" }   # its CPU shows when the app, not Roomr, is the limit
+    load:
+      tool: sipp
+      transport: udp
+      uac: { scenario: invite-answer/uac_invite.xml }
+      hold: 2s
+      rate: { start: 10, step: 10, every: 60s, max: 30 }
+    warmup: 10s
+    thresholds: { p99LatencyMs: 200, failedCallsPct: 0.1 }
+  - id: rooms-g711
+    kind: soak
+    title: G.711 rooms, 5 minutes
+    narrative:
+      what: Rooms of one G.711 caller and one app participant, mixing audio both ways.
+      why: Leaks only show after hours.
+      how: "Smoke run: SIPp holds about 60 concurrent rooms (1 call/s, 60 s each, PCMU RTP) for 5 minutes. After a 12-minute warm-up, memory may grow at most 5 MB/h."
+    duration: 5m
+    warmup: 12m                   # longer than the node keeps ended calls (10 min), so memory has levelled off
+    uut:
+      compose: compose.yaml
+      processes:
+        - { name: roomr, match: "(^| )/roomr( |$)" }   # not the app: the soak judges each process's memory
+    load:
+      tool: sipp
+      transport: udp
+      uac: { scenario: rooms-g711/uac_invite.xml }
+      hold: 60s
+      rate: { cps: 1 }
+    thresholds: { memoryGrowthMBPerHour: 5, failedCallsPct: 0.1, restarts: 0 }
