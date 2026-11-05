@@ -79,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { ref: main }
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with: { name: "${{ needs.run.outputs.artifact }}", path: report }
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
