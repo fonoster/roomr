@@ -3,6 +3,40 @@
   "project": "Roomr",
   "runs": [
     {
+      "id": "20261104T190516Z-571a478",
+      "startedAt": "2026-11-04T19:05:16Z",
+      "version": "0.4.0",
+      "commit": "571a478fc25f39baab31518e0527b5402e5140f9",
+      "path": "runs/20261104T190516Z-571a478/",
+      "verdict": {
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
+        "inconclusive": 0,
+        "aborted": 0,
+        "notRun": 0
+      },
+      "benchmarks": [
+        {
+          "id": "invite-answer",
+          "kind": "capacity",
+          "verdict": "passed",
+          "headline": {
+            "limitCps": 70,
+            "p99AtLimitMs": 67.001
+          }
+        },
+        {
+          "id": "rooms-g711",
+          "kind": "soak",
+          "verdict": "passed",
+          "headline": {
+            "memoryGrowthMBPerHour": 0.117
+          }
+        }
+      ]
+    },
+    {
       "id": "20261104T182952Z-571a478",
       "startedAt": "2026-11-04T18:29:52Z",
       "version": "0.4.0",
