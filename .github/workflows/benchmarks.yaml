@@ -51,7 +51,7 @@ jobs:
 
   run:
     needs: resolve
-    uses: fonoster/perfkit/.github/workflows/run.yaml@v0.1.5
+    uses: fonoster/perfkit/.github/workflows/run.yaml@v0.1.12
     with:
       perfkit-ref: v0.1.5
       target-version: ${{ inputs.target-version }}
