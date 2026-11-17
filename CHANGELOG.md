@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/fonoster/roomr/compare/v0.4.0...v0.5.0) (2026-11-17)
+
+
+### Features
+
+* **fake:** report when the node sends to and receives from a call's app ([#89](https://github.com/fonoster/roomr/issues/89)) ([3268046](https://github.com/fonoster/roomr/commit/326804694ed089381a17e9a39312b0f04c7d855c))
+
 ## [0.4.0](https://github.com/fonoster/roomr/compare/v0.3.2...v0.4.0) (2026-10-30)
 
 
