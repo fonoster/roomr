@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,10 @@ import (
 
 	roomrv1 "github.com/fonoster/roomr/api/roomr/v1"
 	sessionv1 "github.com/fonoster/roomr/api/session/v1"
+	"github.com/fonoster/roomr/internal/audio"
+	"github.com/fonoster/roomr/internal/rtpio"
 	"github.com/nats-io/nats.go"
+	"github.com/pion/rtp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -31,17 +35,32 @@ import (
 type app struct {
 	sessionv1.UnimplementedSessionServer
 	addr string
-	mu   sync.Mutex
-	msgs map[string][]*sessionv1.NodeMessage // by call_ref
-	rtp  map[string]*atomic.Int64            // RTP packets received, by call_ref
+	// srtpKey, when set, goes in the app's Answer and Ready media (an SRTP app leg).
+	srtpKey string
+	// closeAfter, when set, ends each call's stream that long after the app answers.
+	closeAfter time.Duration
+	mu         sync.Mutex
+	msgs       map[string][]*sessionv1.NodeMessage // by call_ref
+	rtp        map[string]*atomic.Int64            // RTP packets received, by call_ref
+	legs       map[string]appLeg                   // each call's RTP socket and Start media
+}
+
+// appLeg is where the app sends a call's RTP: from its socket to the media address in Start.
+type appLeg struct {
+	conn net.PacketConn
+	to   *net.UDPAddr
 }
 
 func startApp(t *testing.T) *app {
+	return startAppWith(t, &app{})
+}
+
+func startAppWith(t *testing.T, a *app) *app {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{addr: l.Addr().String(), msgs: map[string][]*sessionv1.NodeMessage{}, rtp: map[string]*atomic.Int64{}}
+	a.addr, a.msgs, a.rtp, a.legs = l.Addr().String(), map[string][]*sessionv1.NodeMessage{}, map[string]*atomic.Int64{}, map[string]appLeg{}
 	s := grpc.NewServer()
 	sessionv1.RegisterSessionServer(s, a)
 	go func() { _ = s.Serve(l) }()
@@ -55,7 +74,8 @@ func (a *app) Connect(stream sessionv1.Session_ConnectServer) error {
 		return err
 	}
 	defer rtp.Close()
-	media := &sessionv1.MediaEndpoint{Ip: "127.0.0.1", Port: uint32(rtp.LocalAddr().(*net.UDPAddr).Port), Codec: "L16/16000"}
+	media := &sessionv1.MediaEndpoint{Ip: "127.0.0.1", Port: uint32(rtp.LocalAddr().(*net.UDPAddr).Port), Codec: "L16/16000",
+		SrtpKey: a.srtpKey}
 	ref := ""
 	for {
 		m, err := stream.Recv()
@@ -65,8 +85,10 @@ func (a *app) Connect(stream sessionv1.Session_ConnectServer) error {
 		if s := m.GetStart(); s != nil {
 			ref = s.CallRef
 			count := &atomic.Int64{}
+			to := &net.UDPAddr{IP: net.ParseIP(s.GetMedia().GetIp()), Port: int(s.GetMedia().GetPort())}
 			a.mu.Lock()
 			a.rtp[ref] = count
+			a.legs[ref] = appLeg{conn: rtp, to: to}
 			a.mu.Unlock()
 			go func() {
 				buf := make([]byte, 2048)
@@ -82,6 +104,10 @@ func (a *app) Connect(stream sessionv1.Session_ConnectServer) error {
 				reply = &sessionv1.AppMessage{Msg: &sessionv1.AppMessage_Answer{Answer: &sessionv1.Answer{Media: media}}}
 			}
 			_ = stream.Send(reply)
+			if a.closeAfter > 0 {
+				time.Sleep(a.closeAfter)
+				return nil
+			}
 		}
 		a.mu.Lock()
 		a.msgs[ref] = append(a.msgs[ref], m)
@@ -89,7 +115,35 @@ func (a *app) Connect(stream sessionv1.Session_ConnectServer) error {
 	}
 }
 
-// await returns the first message of a call that ok accepts.
+// tone sends n audible L16 frames on a call's app leg, one every 20 ms, then stops.
+func (a *app) tone(t *testing.T, ref string, n int) {
+	t.Helper()
+	a.mu.Lock()
+	leg, ok := a.legs[ref]
+	a.mu.Unlock()
+	if !ok {
+		t.Fatalf("call %s: no Start yet", ref)
+	}
+	f := audio.Silence()
+	for j := range f {
+		f[j] = int16(8000 * math.Sin(2*math.Pi*440*float64(j)/audio.Rate))
+	}
+	payload := audio.L16{}.Encode(f)
+	ssrc := uint32(time.Now().UnixNano())
+	// A ticker keeps the app at the node's 20 ms pace; sleeping drifts behind it.
+	tick := time.NewTicker(audio.FrameMs * time.Millisecond)
+	defer tick.Stop()
+	for i := range n {
+		pkt := rtp.Packet{Header: rtp.Header{Version: 2, PayloadType: 96, SequenceNumber: uint16(i),
+			Timestamp: uint32(i * audio.FrameSamples), SSRC: ssrc}, Payload: payload}
+		data, _ := pkt.Marshal()
+		if _, err := leg.conn.WriteTo(data, leg.to); err != nil {
+			t.Fatal(err)
+		}
+		<-tick.C
+	}
+}
+
 // packets is how many RTP packets the app received on a call so far.
 func (a *app) packets(ref string) int64 {
 	a.mu.Lock()
@@ -100,6 +154,7 @@ func (a *app) packets(ref string) int64 {
 	return 0
 }
 
+// await returns the first message of a call that ok accepts.
 func (a *app) await(t *testing.T, ref string, ok func(*sessionv1.NodeMessage) bool) *sessionv1.NodeMessage {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -124,6 +179,7 @@ type rig struct {
 	t   *testing.T
 	api string
 	nc  *nats.Conn
+	f   *fake
 }
 
 func startFake(t *testing.T) *rig {
@@ -144,7 +200,7 @@ func startFake(t *testing.T) *rig {
 		srv.Close()
 		nc.Close()
 	})
-	return &rig{t: t, api: srv.URL, nc: nc}
+	return &rig{t: t, api: srv.URL, nc: nc, f: f}
 }
 
 func (r *rig) call(method, path string, body any, out any) int {
@@ -409,5 +465,222 @@ func waitFor(t *testing.T, ok func() bool) {
 			t.Fatal("timed out")
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// ---- FAK-004: the node's edge toward the app -------------------------------------------------
+
+// answered places an inbound call and waits until the app answered it.
+func (r *rig) answered(t *testing.T, nodeRef, callRef string) {
+	t.Helper()
+	if code := r.call("POST", "/nodes/"+nodeRef+"/calls", map[string]any{"callRef": callRef}, nil); code != 201 {
+		t.Fatalf("POST calls: %d", code)
+	}
+	waitFor(t, func() bool {
+		var v callView
+		r.call("GET", "/calls/"+callRef, nil, &v)
+		return v.State == "answered"
+	})
+}
+
+func (r *rig) status(callRef string, since int64) callView {
+	var v callView
+	r.call("GET", fmt.Sprintf("/calls/%s?since=%d", callRef, since), nil, &v)
+	return v
+}
+
+func TestFAK004_TheFakeReportsTheNodesEdgeTowardTheApp(t *testing.T) {
+	r := startFake(t)
+	a := startApp(t)
+	n := r.node(map[string]any{"sessionEndpoint": a.addr, "measureAppEdge": true})
+
+	t.Run("the node sends the phone's speech to the app before the phone stops", func(t *testing.T) {
+		r.answered(t, n.NodeRef, "edge")
+		start := a.await(t, "edge", func(m *sessionv1.NodeMessage) bool { return m.GetStart() != nil }).GetStart()
+		if relay := r.f.node(n.NodeRef).proxy.relay("edge"); relay == nil || int(start.Media.Port) != relay.appPort() {
+			t.Fatalf("Start.media %v is not the relay's address", start.Media)
+		}
+		waitFor(t, func() bool { return a.packets("edge") > 5 })
+		since := time.Now().UnixMilli()
+		r.call("POST", "/calls/edge/audio", map[string]any{"kind": "tone", "ms": 400}, nil)
+		var v callView
+		waitFor(t, func() bool {
+			v = r.status("edge", since)
+			return v.Phone != nil && v.Phone.SpokeUntil > 0
+		})
+		if v.App == nil || !(since < v.App.FirstAudibleSentMs && v.App.FirstAudibleSentMs < v.Phone.SpokeUntil) {
+			t.Fatalf("since %d, app %+v, spokeUntil %d", since, v.App, v.Phone.SpokeUntil)
+		}
+		t.Logf("firstAudibleSentMs is %d ms before phone.spokeUntilMs", v.Phone.SpokeUntil-v.App.FirstAudibleSentMs)
+	})
+
+	t.Run("the node receives the app's speech before the phone hears it", func(t *testing.T) {
+		since := time.Now().UnixMilli()
+		a.tone(t, "edge", 20)
+		time.Sleep(600 * time.Millisecond)
+		v := r.status("edge", since)
+		if v.App == nil || v.Phone == nil || v.App.LastAudibleReceivedMs == 0 || v.Phone.LastAudibleAfter == 0 {
+			t.Fatalf("app %+v, phone %+v", v.App, v.Phone)
+		}
+		gap := since + int64(v.Phone.LastAudibleAfter) - v.App.LastAudibleReceivedMs
+		if gap < 20 || gap > 500 {
+			t.Fatalf("the phone heard the app's last audible frame %d ms after the relay", gap)
+		}
+		t.Logf("phone's last audible frame is %d ms after lastAudibleReceivedMs", gap)
+	})
+
+	t.Run("since bounds both times", func(t *testing.T) {
+		if v := r.status("edge", time.Now().UnixMilli()); v.App == nil || v.App.FirstAudibleSentMs != 0 || v.App.LastAudibleReceivedMs != 0 {
+			t.Fatalf("after every audible frame: %+v", v.App)
+		}
+		var v callView
+		r.call("GET", "/calls/edge", nil, &v)
+		if v.App == nil || v.App.FirstAudibleSentMs == 0 || v.App.LastAudibleReceivedMs == 0 {
+			t.Fatalf("the whole call: %+v", v.App)
+		}
+	})
+
+	t.Run("nothing audible reaches the app while the node's RTP is stopped", func(t *testing.T) {
+		if code := r.call("POST", "/nodes/"+n.NodeRef+"/calls", map[string]any{"callRef": "stopped"}, nil); code != 201 {
+			t.Fatalf("POST calls: %d", code)
+		}
+		waitFor(t, func() bool {
+			return r.call("POST", "/calls/stopped/app-media", map[string]any{"stopped": true}, nil) == 204
+		})
+		since := time.Now().UnixMilli()
+		r.call("POST", "/calls/stopped/audio", map[string]any{"kind": "tone", "ms": 300}, nil)
+		var v callView
+		waitFor(t, func() bool {
+			v = r.status("stopped", since)
+			return v.Phone != nil && v.Phone.SpokeUntil > 0
+		})
+		if v.App == nil || v.App.FirstAudibleSentMs != 0 {
+			t.Fatalf("app %+v", v.App)
+		}
+	})
+
+	t.Run("an outbound call still ringing has no app leg", func(t *testing.T) {
+		r.call("POST", "/nodes/"+n.NodeRef+"/callee", map[string]any{"mode": "ring", "callRef": "ringing"}, nil)
+		if _, err := client(t, n.ControlAddr).CreateCall(ctx(t), &roomrv1.CreateCallRequest{CallRef: "ringing",
+			To: &roomrv1.SipTarget{Uri: "sip:+15551230000@carrier"}}); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(300 * time.Millisecond)
+		var v callView
+		r.call("GET", "/calls/ringing", nil, &v)
+		if v.State != "ringing" || v.App != nil {
+			t.Fatalf("ringing call: %+v", v)
+		}
+		// Answer it: a node stopped while it rings out can crash in sipgo's CANCEL.
+		waitFor(t, func() bool { return r.call("POST", "/calls/ringing/answer", nil, nil) == 204 })
+		waitFor(t, func() bool { return r.status("ringing", 0).App != nil })
+	})
+
+	t.Run("a CreateCall session is reached through the proxy", func(t *testing.T) {
+		own := startApp(t)
+		if _, err := client(t, n.ControlAddr).CreateCall(ctx(t), &roomrv1.CreateCallRequest{CallRef: "own",
+			To: &roomrv1.SipTarget{Uri: "sip:+15551230000@carrier"}, Session: own.addr}); err != nil {
+			t.Fatal(err)
+		}
+		own.await(t, "own", func(m *sessionv1.NodeMessage) bool { return m.GetStart() != nil })
+		waitFor(t, func() bool {
+			return r.call("POST", "/calls/own/audio", map[string]any{"kind": "tone", "ms": 200}, nil) == 204
+		})
+		waitFor(t, func() bool {
+			v := r.status("own", 0)
+			return v.App != nil && v.App.FirstAudibleSentMs > 0
+		})
+	})
+
+	t.Run("an app that closes its stream ends the call as without the proxy", func(t *testing.T) {
+		closing := startAppWith(t, &app{closeAfter: 200 * time.Millisecond})
+		causes := map[bool]string{}
+		for _, measured := range []bool{false, true} {
+			m := r.node(map[string]any{"sessionEndpoint": closing.addr, "measureAppEdge": measured})
+			ref := fmt.Sprintf("closing-%t", measured)
+			r.call("POST", "/nodes/"+m.NodeRef+"/calls", map[string]any{"callRef": ref}, nil)
+			waitFor(t, func() bool {
+				var v callView
+				r.call("GET", "/calls/"+ref, nil, &v)
+				causes[measured] = v.Cause
+				return v.State == "ended"
+			})
+		}
+		if causes[true] != causes[false] || causes[true] != "app_gone" {
+			t.Fatalf("causes: %v", causes)
+		}
+	})
+
+	t.Run("an SRTP app leg works and reports 0", func(t *testing.T) {
+		secure := startAppWith(t, &app{srtpKey: rtpio.NewSRTPKey()})
+		m := r.node(map[string]any{"sessionEndpoint": secure.addr, "measureAppEdge": true})
+		r.answered(t, m.NodeRef, "secure")
+		waitFor(t, func() bool { return secure.packets("secure") > 5 })
+		since := time.Now().UnixMilli()
+		r.call("POST", "/calls/secure/audio", map[string]any{"kind": "tone", "ms": 300}, nil)
+		var v callView
+		waitFor(t, func() bool {
+			v = r.status("secure", since)
+			return v.Phone != nil && v.Phone.SpokeUntil > 0
+		})
+		if v.State != "answered" || v.App == nil || v.App.FirstAudibleSentMs != 0 || v.App.LastAudibleReceivedMs != 0 {
+			t.Fatalf("SRTP call: %+v, app %+v", v, v.App)
+		}
+	})
+
+	t.Run("an unreachable upstream ends the call app_gone with 503", func(t *testing.T) {
+		l, _ := net.Listen("tcp", "127.0.0.1:0")
+		gone := l.Addr().String()
+		_ = l.Close()
+		m := r.node(map[string]any{"sessionEndpoint": gone, "measureAppEdge": true})
+		r.call("POST", "/nodes/"+m.NodeRef+"/calls", map[string]any{"callRef": "nowhere"}, nil)
+		var v callView
+		waitFor(t, func() bool {
+			r.call("GET", "/calls/nowhere", nil, &v)
+			return v.State == "ended" && v.Phone != nil && slices.Contains(v.Phone.SIP, 503)
+		})
+		if v.Cause != "app_gone" || v.SipStatus != 503 || !slices.Contains(v.Phone.SIP, 180) {
+			t.Fatalf("call: %+v, phone %+v", v, v.Phone)
+		}
+	})
+
+	t.Run("a node without measureAppEdge reports no app and gets no proxy", func(t *testing.T) {
+		plain := r.node(map[string]any{"sessionEndpoint": a.addr})
+		r.answered(t, plain.NodeRef, "plain")
+		var v callView
+		r.call("GET", "/calls/plain", nil, &v)
+		if v.App != nil || r.f.node(plain.NodeRef).proxy != nil {
+			t.Fatalf("app %+v on a node without measureAppEdge", v.App)
+		}
+	})
+}
+
+// The relay's stamping, without a node (FAK-004).
+func TestFAK004_RelayStampsTheFirstAudibleFrame(t *testing.T) {
+	rl := &relay{}
+	rl.answered(&sessionv1.MediaEndpoint{Codec: audio.NameL16})
+	packet := func(f audio.Frame) []byte {
+		data, _ := (&rtp.Packet{Header: rtp.Header{Version: 2, PayloadType: 96}, Payload: audio.L16{}.Encode(f)}).Marshal()
+		return data
+	}
+	loud := audio.Silence()
+	for j := range loud {
+		loud[j] = int16(8000 * math.Sin(2*math.Pi*440*float64(j)/audio.Rate))
+	}
+	for range 5 {
+		rl.stamp(true, packet(audio.Silence()))
+	}
+	if st := rl.status(time.Time{}); st.FirstAudibleSentMs != 0 {
+		t.Fatalf("silence was stamped: %+v", st)
+	}
+	rl.stamp(true, packet(loud))
+	first := rl.status(time.Time{}).FirstAudibleSentMs
+	if first == 0 {
+		t.Fatal("the audible frame was not stamped")
+	}
+	time.Sleep(5 * time.Millisecond)
+	rl.stamp(true, packet(loud))
+	if got := rl.status(time.Time{}).FirstAudibleSentMs; got != first {
+		t.Fatalf("the first-sent time moved from %d to %d", first, got)
 	}
 }

@@ -38,6 +38,9 @@ type callView struct {
 	Held      bool   `json:"held"`
 	// Phone is the caller (inbound) or the callee that answered (outbound).
 	Phone *caller.Status `json:"phone,omitempty"`
+	// App is the node's edge toward the call's app leg, on a node started with measureAppEdge
+	// (FAK-004; absent while the call has no app leg).
+	App *edgeStatus `json:"app,omitempty"`
 }
 
 // routes is the control API (docs/FAKE.md).
@@ -217,7 +220,7 @@ func (f *fake) routes() http.Handler {
 		})
 	}
 	mux.HandleFunc("GET /calls/{call}", withCall(func(fn *fakeNode, ref string, w http.ResponseWriter, r *http.Request) {
-		// ?since=<unix ms> adds the phone's audio measurements from that time on.
+		// ?since=<unix ms> adds the phone's audio measurements, and bounds the app edge's, from that time on.
 		since := time.Time{}
 		if v, err := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64); err == nil {
 			since = time.UnixMilli(v)
@@ -356,6 +359,11 @@ func (f *fake) callView(fn *fakeNode, ref string, since time.Time) callView {
 	if c != nil {
 		st := c.StatusSince(since)
 		v.Phone = &st
+	}
+	if fn.proxy != nil {
+		if rl := fn.proxy.relay(ref); rl != nil {
+			v.App = rl.status(since)
+		}
 	}
 	return v
 }

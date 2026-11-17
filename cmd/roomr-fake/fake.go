@@ -27,7 +27,19 @@ import (
 
 // lateNode is the gRPC service's backend: the node, set once it exists (the node's config needs
 // the gRPC address first).
-type lateNode struct{ *node.Node }
+type lateNode struct {
+	*node.Node
+	// proxy, on a node started with measureAppEdge, carries every call's control stream (FAK-004).
+	proxy *sessionProxy
+}
+
+// CreateCall sends an outbound call's control stream through the proxy, when there is one.
+func (l *lateNode) CreateCall(req node.CallRequest) (node.CallInfo, error) {
+	if l.proxy == nil {
+		return l.Node.CreateCall(req)
+	}
+	return l.proxy.createCall(l.Node, req)
+}
 
 func unmarshalJSON(data []byte, v any) error { return json.Unmarshal(data, v) }
 
@@ -69,6 +81,8 @@ type fakeNode struct {
 	controlAddr, sipAddr string
 	// reported is the room count heartbeats report (-1: the real one).
 	reported atomic.Int64
+	// proxy measures the node's edge toward each call's app (measureAppEdge; nil: off).
+	proxy *sessionProxy
 
 	mu sync.Mutex
 	// inbound maps the call_ref of each call the phone placed to the phone's call id.
@@ -121,6 +135,8 @@ type nodeOptions struct {
 	MaxDurationMs      int
 	Codecs             []string
 	Callee             *calleeOptions
+	// MeasureAppEdge runs each call's control stream and app-leg RTP through the fake (FAK-004).
+	MeasureAppEdge bool
 }
 
 // calleeOptions scripts how the phone answers what the node dials: for every call, or for one
@@ -210,6 +226,16 @@ func (f *fake) startNode(o nodeOptions) (*fakeNode, error) {
 			}
 			return actual
 		}}
+	if o.MeasureAppEdge {
+		proxy, err := startProxy(f.host, f.advertise, o.SessionEndpoint)
+		if err != nil {
+			ctl.Abort()
+			phone.Close()
+			return nil, err
+		}
+		fn.proxy, backend.proxy = proxy, proxy
+		cfg.SessionEndpoint, cfg.SessionKeepalive = proxy.addr, sessionKeepalive
+	}
 	fn.n = node.New(f.nc, cfg)
 	backend.Node = fn.n
 	ua, err := sipua.New(fn.n, sipua.Config{Listen: fn.sipAddr, AdvertiseHost: f.host, AdvertisePort: sipPort,
@@ -217,6 +243,9 @@ func (f *fake) startNode(o nodeOptions) (*fakeNode, error) {
 	if err != nil {
 		ctl.Abort()
 		phone.Close()
+		if fn.proxy != nil {
+			fn.proxy.stop()
+		}
 		return nil, fmt.Errorf("sip: %w", err)
 	}
 	fn.ua = ua
@@ -307,6 +336,14 @@ func (fn *fakeNode) stop() {
 	fn.cancel()
 	fn.ua.Close()
 	fn.phone.Close()
+	fn.stopProxy()
+}
+
+// stopProxy stops the session proxy, after the node's calls ended.
+func (fn *fakeNode) stopProxy() {
+	if fn.proxy != nil {
+		fn.proxy.stop()
+	}
 }
 
 // kill stops the node as a crash would: no node.down, no Ended, gRPC refuses at once.
@@ -316,6 +353,7 @@ func (fn *fakeNode) kill() {
 	fn.cancel()
 	fn.ua.Close()
 	fn.phone.Close()
+	fn.stopProxy()
 }
 
 // inboundCall is POST /nodes/{ref}/calls: the phone calls the node.

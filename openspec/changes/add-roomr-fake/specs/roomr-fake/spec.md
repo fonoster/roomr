@@ -48,6 +48,14 @@ cause and SIP status. Case id FAK-002.
 - **WHEN** a test ends an answered call with cause `node_error`
 - **THEN** the session endpoint receives Ended with cause `node_error` and the phone's leg is hung up
 
+#### Scenario: The fake reports the node's edge toward the app
+- **GIVEN** a node started with `measureAppEdge: true`, whose calls' control streams and app-leg RTP go through the fake's session proxy and relay
+- **WHEN** the phone speaks on an answered call, and then the app sends audible RTP and stops
+- **THEN** `GET /calls/{call}?since=<t>` reports `app.firstAudibleSentMs` after `t` and before the phone's `spokeUntilMs`
+- **AND** `app.lastAudibleReceivedMs` before the time the phone heard the app's last audible frame
+- **AND** both are 0 on an SRTP app leg, and `app` is absent on a node started without `measureAppEdge` and while a call has no app leg
+- **AND** case id FAK-004
+
 ### Requirement: The fake injects faults
 
 The control API SHALL make the next N calls to a Roomr gRPC method fail with a given gRPC status

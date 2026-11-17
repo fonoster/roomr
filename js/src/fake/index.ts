@@ -40,6 +40,11 @@ export type NodeOptions = {
   codecs?: string[];
   /** How the phone answers what the node dials (default answer). */
   callee?: { mode: CalleeMode; afterMs?: number };
+  /**
+   * Run each call's control stream and app-leg RTP through the fake, so CallStatus reports `app`
+   * (default false). The `Start.media` the app gets is then the fake's relay address.
+   */
+  measureAppEdge?: boolean;
 };
 
 export type NodeInfo = { nodeRef: string; controlAddr: string; sipAddr: string; rooms: number };
@@ -61,6 +66,9 @@ export type PhoneStatus = {
   digits?: string;
 };
 
+/** The node's edge toward the call's app leg, stamped at the fake's relay (unix ms; 0: none). */
+export type AppEdgeStatus = { firstAudibleSentMs: number; lastAudibleReceivedMs: number };
+
 export type CallStatus = {
   callRef: string;
   nodeRef: string;
@@ -73,6 +81,8 @@ export type CallStatus = {
   roomRef?: string;
   held: boolean;
   phone?: PhoneStatus;
+  /** On a node started with measureAppEdge, once the call has an app leg. */
+  app?: AppEdgeStatus;
 };
 
 export type InboundCall = {
