@@ -4,7 +4,7 @@
 ##
 # Pinned to a patched release by digest (M15); bump with go.mod's go line. The digest is the
 # multi-arch index, so --platform picks the build platform's image.
-FROM --platform=$BUILDPLATFORM golang:1.27.2@sha256:820153096fda4de6ac1b7194d12e416b7dd8f4e9a33d17e0345b111b945162d8 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3@sha256:e519d3b0a5b285e5aa53ab9eef02bc6bbb9cb04608389b743a136a9ce75f0d1e AS builder
 LABEL team="Fonoster Team <team@fonoster.com>"
 ARG TARGETARCH
 ARG BUILDARCH
