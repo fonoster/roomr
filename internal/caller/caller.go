@@ -614,17 +614,23 @@ func (c *Call) await(ctx context.Context, key string) {
 	}()
 }
 
-func (c *Call) heard(f audio.Frame) {
+// Audible reports whether a 16 kHz frame is audible: RMS above 300. It is the one audible rule
+// the phone and roomr-fake's app-edge relay share (FAK-004).
+func Audible(f audio.Frame) bool {
 	var sum float64
 	for _, s := range f {
 		sum += float64(s) * float64(s)
 	}
+	return math.Sqrt(sum/float64(len(f))) > 300
+}
+
+func (c *Call) heard(f audio.Frame) {
 	c.mu.Lock()
 	c.heardMs += audio.FrameMs
 	if len(c.heardPCM) < maxHeardFrames {
 		c.heardPCM = append(c.heardPCM, append(audio.Frame(nil), f...))
 	}
-	if math.Sqrt(sum/float64(len(f))) > 300 {
+	if Audible(f) {
 		c.audibleMs += audio.FrameMs
 		c.audibleAt = append(c.audibleAt, time.Now())
 	}

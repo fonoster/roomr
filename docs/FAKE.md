@@ -58,7 +58,7 @@ Nodes:
 
 | | |
 | --- | --- |
-| `POST /nodes` | Start a node. Body: `nodeRef`, `region`, `maxRooms`, `maxParticipants`, `rooms` (pre-filled rooms that count toward the limit and never end), `reportedRooms`, `heartbeatMs`, `sessionEndpoint`, `answerTimeoutMs`, `readyTimeoutMs`, `mediaTimeoutMs`, `emptyRoomTimeoutMs`, `maxDurationMs`, `codecs`, `callee: {mode, afterMs}`. Returns `nodeRef`, `controlAddr`, `sipAddr`, `rooms` |
+| `POST /nodes` | Start a node. Body: `nodeRef`, `region`, `maxRooms`, `maxParticipants`, `rooms` (pre-filled rooms that count toward the limit and never end), `reportedRooms`, `heartbeatMs`, `sessionEndpoint`, `answerTimeoutMs`, `readyTimeoutMs`, `mediaTimeoutMs`, `emptyRoomTimeoutMs`, `maxDurationMs`, `codecs`, `callee: {mode, afterMs}`, `measureAppEdge` (default `false`: runs each call's control stream and app-leg RTP through the fake, so `GET /calls/{call}` reports `app`; the `Start.media` the app gets is then the fake's relay address). Returns `nodeRef`, `controlAddr`, `sipAddr`, `rooms` |
 | `GET /nodes`, `GET /nodes/{node}` | Nodes and their room counts |
 | `PATCH /nodes/{node}` | `{"reportedRooms": 0}` makes heartbeats report 0 rooms; `null` restores the real count |
 | `POST /nodes/{node}/callee` | `{"mode": "answer\|busy\|no_answer\|unavailable\|decline\|ring", "afterMs": 0, "callRef": "c1"}`: how the phone answers what the node dials, for one call_ref or every call. `ring` rings until `POST /calls/{call}/answer` |
@@ -77,7 +77,7 @@ fake's nodes hold calls with one ref):
 
 | | |
 | --- | --- |
-| `GET /calls/{call}` | The node's `state` (`ringing`, `answered`, `ended`), `cause` and `sipStatus` once ended, `roomRef`, `held`, and the phone's side: SIP statuses, heard and audible audio, keys received. `?since=<unix ms>` adds audio measures from then on |
+| `GET /calls/{call}` | The node's `state` (`ringing`, `answered`, `ended`), `cause` and `sipStatus` once ended, `roomRef`, `held`, and the phone's side: SIP statuses, heard and audible audio, keys received. `?since=<unix ms>` adds audio measures from then on. On a node started with `measureAppEdge`, `app: {firstAudibleSentMs, lastAudibleReceivedMs}` (unix ms; absent while the call has no app leg): the first audible frame the node sent toward the app and the last audible frame the app sent toward the node, at or after `since` (without it, the whole call), each 0 when there is none. Both are stamped at the fake's relay, before the node's jitter buffer, so they don't include the delay the buffer adds when an app sends late or bursty RTP: keep a phone-side check for that. An SRTP app leg reports 0 for both |
 | `GET /calls/{call}/commands` | What the app sent on the call's control stream, in order: `{"commands": [{"at", "callRef", "command": {"type": "answer", ...}}]}` |
 | `POST /calls/{call}/answer` | Answer a callee ringing in mode `ring` |
 | `POST /calls/{call}/end` | The node ends the call: `{"cause": "node_error", "sipStatus": 503}` |
